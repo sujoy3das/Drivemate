@@ -68,6 +68,10 @@ HLS_FOLDER = os.path.join(UPLOAD_FOLDER, 'hls')
 if not os.path.exists(HLS_FOLDER):
     os.makedirs(HLS_FOLDER)
 
+VIDEO_CACHE_FOLDER = os.path.join(UPLOAD_FOLDER, 'video_cache')
+if not os.path.exists(VIDEO_CACHE_FOLDER):
+    os.makedirs(VIDEO_CACHE_FOLDER)
+
 # Initialize a thread pool for background tasks like video conversion.
 executor = ThreadPoolExecutor(max_workers=2)
 @login_manager.user_loader
@@ -263,6 +267,30 @@ def check_ffmpeg_command():
         print("After updating the PATH, you may need to restart your terminal or computer for the changes to take effect.\n")
     except subprocess.CalledProcessError as e:
         print(f"\n❌ Error: ffmpeg was found, but it returned an error: {e.stderr}\n")
+
+@app.cli.command("clean-video-cache")
+@click.option('--days', default=7, help='Delete cached files older than this many days.')
+def clean_video_cache_command(days):
+    """Deletes old files from the video cache directory."""
+    if not os.path.exists(VIDEO_CACHE_FOLDER):
+        print("Video cache directory does not exist. Nothing to do.")
+        return
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    deleted_count = 0
+    for filename in os.listdir(VIDEO_CACHE_FOLDER):
+        filepath = os.path.join(VIDEO_CACHE_FOLDER, filename)
+        if os.path.isfile(filepath):
+            try:
+                file_mod_time = datetime.utcfromtimestamp(os.path.getmtime(filepath))
+                if file_mod_time < cutoff:
+                    os.remove(filepath)
+                    deleted_count += 1
+            except Exception as e:
+                print(f"Error deleting cached file {filename}: {e}")
+    print(f"Video cache cleanup complete. Deleted {deleted_count} files older than {days} days.")
+
+
 
 
 @app.cli.command("clean-video-cache")
@@ -768,21 +796,15 @@ def _delete_folder_recursive(folder):
     for file in files_to_delete:
         try:
             os.remove(file.path)
+            # Also delete the cached video preview if it exists
+            if file.mime_type == 'video/quicktime':
+                cached_filename = f"cache_{file.id}_{int(file.created_at.timestamp())}.mp4"
+                cached_filepath = os.path.join(VIDEO_CACHE_FOLDER, cached_filename)
+                if os.path.exists(cached_filepath):
+                    os.remove(cached_filepath)
         except FileNotFoundError:
             # If file is already gone from disk, log it but still remove from DB.
             app.logger.warning(f"File not found on disk during recursive delete, but proceeding to delete database record: {file.path}")
-        except OSError as e:
-            # For other errors (e.g., permissions), log and skip this file.
-            app.logger.error(f'Error deleting file {file.path} from disk during recursive delete: {e}')
-            continue
-
-        # Also delete the cached video preview if it exists
-        if file.mime_type == 'video/quicktime':
-            cached_filename = f"cache_{file.id}_{int(file.created_at.timestamp())}.mp4"
-            cached_filepath = os.path.join(VIDEO_CACHE_FOLDER, cached_filename)
-            if os.path.exists(cached_filepath):
-                os.remove(cached_filepath)
-
         total_size_deleted += file.size
         db.session.delete(file)
 
@@ -941,21 +963,10 @@ def preview_file(file_id):
     previous_file_id = None
     next_file_id = None
 
-    # --- Video Conversion Status Check ---
-    is_hls_processing = False
-    hls_playlist_url = None
-
-    # If it's a .mov file, check its HLS conversion status
-    if file.mime_type == 'video/quicktime':
-        hls_output_folder = os.path.join(HLS_FOLDER, str(file.id))
-        hls_playlist_path = os.path.join(hls_output_folder, 'playlist.m3u8')
-        if os.path.exists(hls_playlist_path):
-            hls_playlist_url = url_for('serve_hls', file_id=file.id, filename='playlist.m3u8')
-        else:
-            if not is_hls_conversion_running(file.id):
-                # Use the ThreadPoolExecutor to run conversion in the background
-                executor.submit(convert_and_cache_video_hls, file.id)
-            is_hls_processing = True
+    # --- Device Detection for .mov playback ---
+    user_agent = request.headers.get('User-Agent', '').lower()
+    # Check for Mac, iPhone, or iPad to determine if .mov can be played natively.
+    is_apple_device = 'macintosh' in user_agent or 'mac os x' in user_agent or 'iphone' in user_agent or 'ipad' in user_agent
 
     # Only provide next/prev for media files the user has access to
     if file.mime_type.startswith('image/') or file.mime_type.startswith('video/'):
@@ -1013,8 +1024,7 @@ def preview_file(file_id):
                            all_folders=all_folders,
                            origin_url=origin_url,
                            sharer_id=sharer_id,
-                           is_hls_processing=is_hls_processing,
-                           hls_playlist_url=hls_playlist_url
+                           is_apple_device=is_apple_device
                            )
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -1186,11 +1196,6 @@ def upload_file():
     db.session.add(new_file)
     db.session.flush() # Flush to get the new file's ID
 
-    # --- Trigger background video conversion if needed ---
-    if mime_type == 'video/quicktime':
-        app.logger.info(f"Upload complete for {original_filename}. Submitting HLS conversion task for file ID {new_file.id}.")
-        executor.submit(convert_and_cache_video_hls, new_file.id)
-
     file_data = {
         'id': new_file.id,
         'filename': new_file.filename,
@@ -1258,51 +1263,6 @@ def serve_thumbnail(filename):
         app.logger.error(f"Error serving thumbnail {filename}: {e}")
         return "Error processing thumbnail", 500
 
-def convert_and_cache_video_hls(file_id):
-    """Background task to convert a video to HLS format."""
-    with app.app_context():
-        file = db.session.get(File, file_id)
-        if not file or file.mime_type != 'video/quicktime':
-            app.logger.error(f"HLS conversion task started for invalid file ID {file_id}.")
-            return
-
-        hls_output_folder = os.path.join(HLS_FOLDER, str(file.id))
-        lock_file = os.path.join(hls_output_folder, "convert.lock")
-
-        if not os.path.exists(hls_output_folder):
-            os.makedirs(hls_output_folder)
-
-        # Create a lock file
-        with open(lock_file, 'w') as f:
-            f.write('running')
-
-        temp_mov_path = None
-        try:
-            app.logger.info(f"Starting background HLS conversion for file ID {file.id}.")
-            master_fernet = Fernet(current_app.config['MASTER_ENCRYPTION_KEY'])
-            file_key = master_fernet.decrypt(file.encrypted_key.encode('utf-8'))
-            fernet = Fernet(file_key)
-            
-            with open(file.path, 'rb') as f_enc:
-                decrypted_content = fernet.decrypt(f_enc.read())
-            
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.mov') as temp_mov:
-                temp_mov.write(decrypted_content)
-                temp_mov_path = temp_mov.name
-
-            # Convert the temporary decrypted file to HLS
-            convert_to_hls(temp_mov_path, hls_output_folder)
-            app.logger.info(f"Background HLS conversion successful for file ID {file.id}.")
-
-        except Exception as e:
-            app.logger.error(f"Background HLS conversion failed for file ID {file.id}: {e}")
-        finally:
-            # Clean up temporary files
-            if temp_mov_path and os.path.exists(temp_mov_path):
-                os.remove(temp_mov_path)
-            if os.path.exists(lock_file):
-                os.remove(lock_file)
-
 @app.route('/download/<int:file_id>')
 @login_required
 def download_file(file_id):
@@ -1326,11 +1286,6 @@ def download_file(file_id):
 
     # Determine if this is a download request or an inline preview request
     as_attachment = request.args.get('inline', 'false').lower() != 'true'
-
-    # For inline video previews, .mov files are handled by the /stream_video endpoint.
-    # This route should not be hit for inline .mov previews.
-    if not as_attachment and file.mime_type == 'video/quicktime':
-        return "Use /stream_video for MOV previews.", 400
 
     # Enforce specific download permission ONLY for actual downloads, not previews
     if as_attachment and not can_download_item(file, current_user):
@@ -1369,21 +1324,85 @@ def download_file(file_id):
         else:
             flash(f'Error downloading file: {e}', 'danger')
             return redirect(url_for('index'))
-
-@app.route('/hls/<int:file_id>/<path:filename>')
+    
+@app.route('/stream_converted_video/<int:file_id>')
 @login_required
-def serve_hls(file_id, filename):
-    """Serves HLS playlist and segment files."""
+def stream_converted_video(file_id):
     file = db.get_or_404(File, file_id)
+    # This endpoint is only for streaming a PRE-CONVERTED video.
+    # The conversion should have been triggered by the /convert_video_to_mp4 endpoint.
     if not has_access(file, current_user):
         return "Permission Denied", 403
 
-    hls_dir = os.path.join(HLS_FOLDER, str(file_id))
+    cached_filename = f"cache_{file.id}_{int(file.created_at.timestamp())}.mp4"
+    cached_filepath = os.path.join(VIDEO_CACHE_FOLDER, cached_filename)
+
+    # If the cached file exists, serve it. Flask's send_file handles range requests for streaming.
+    if os.path.exists(cached_filepath):
+        return send_file(cached_filepath, mimetype='video/mp4')
+    else:
+        # This case should ideally not be reached if the frontend calls the conversion endpoint first.
+        app.logger.error(f"Stream request for file {file_id} failed: cached file not found.")
+        return "Cached video not found. Please try again.", 404
+
+@app.route('/download_converted_video/<int:file_id>')
+@login_required
+def download_converted_video(file_id):
+    file = db.get_or_404(File, file_id)
+    if not can_download_item(file, current_user):
+        flash('You do not have permission to download this file.', 'danger')
+        return redirect(request.referrer or url_for('index'))
+
+    # This reuses the same logic as the streaming endpoint.
+    # It will either serve the cached file or create it.
+    response = stream_converted_video(file_id)
+
+    # If the response is a file, modify headers for download.
+    if hasattr(response, 'headers'):
+        # Create a new filename for the download
+        original_name, _ = os.path.splitext(file.filename)
+        download_name = f"{original_name}.mp4"
+        response.headers['Content-Disposition'] = f'attachment; filename="{download_name}"'
     
-    # Add headers to prevent caching of the playlist
-    response = send_from_directory(hls_dir, filename)
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     return response
+
+@app.route('/convert_video_to_mp4/<int:file_id>', methods=['POST'])
+@login_required
+def convert_video_to_mp4_endpoint(file_id):
+    """
+    An AJAX endpoint that triggers the conversion of a video to MP4 and caches it.
+    It does not stream the file, only ensures it's created.
+    """
+    file = db.get_or_404(File, file_id)
+    if not has_access(file, current_user):
+        return jsonify({'success': False, 'error': 'Permission Denied'}), 403
+
+    cached_filename = f"cache_{file.id}_{int(file.created_at.timestamp())}.mp4"
+    cached_filepath = os.path.join(VIDEO_CACHE_FOLDER, cached_filename)
+
+    if os.path.exists(cached_filepath):
+        return jsonify({'success': True, 'status': 'already_exists'})
+
+    temp_input_path = None
+    try:
+        master_fernet = Fernet(current_app.config['MASTER_ENCRYPTION_KEY'])
+        file_key = master_fernet.decrypt(file.encrypted_key.encode('utf-8'))
+        fernet = Fernet(file_key)
+        
+        with open(file.path, 'rb') as f_enc:
+            decrypted_content = fernet.decrypt(f_enc.read())
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_in:
+            temp_in.write(decrypted_content)
+            temp_input_path = temp_in.name
+
+        if convert_video_to_mp4(temp_input_path, cached_filepath):
+            return jsonify({'success': True, 'status': 'converted'})
+        else:
+            return jsonify({'success': False, 'error': 'Video conversion failed.'}), 500
+    finally:
+        if temp_input_path and os.path.exists(temp_input_path):
+            os.remove(temp_input_path)
 
 @app.route('/share-with-user', methods=['POST'])
 @login_required

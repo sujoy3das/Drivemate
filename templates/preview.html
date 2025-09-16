@@ -1,10 +1,4 @@
 {% extends 'base.html' %}
-
-{% block head %}
-    {{ super() }}
-    <!-- HLS.js for streaming video playback -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-{% endblock %}
 {% block title %}Preview: {{ file.filename }}{% endblock %}
 
 {% block content %}
@@ -115,22 +109,31 @@
     <div class="preview-body">
         {% if file.mime_type.startswith('image/') %}
             <img src="{{ url_for('download_file', file_id=file.id, inline=True, sharer_id=sharer_id) }}" class="img-fluid rounded">
-        {% elif file.mime_type == 'video/quicktime' %}
-            {# This block handles all .mov files for HLS streaming #}
-            {% if is_hls_processing %}
-            <div id="video-processing-indicator" class="text-center text-light">
-                <div class="spinner-border" style="width: 3rem; height: 3rem;" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="mt-3">Preparing video for streaming... Playback will begin shortly.</p>
-            </div>
-            {% endif %}
-            <video id="video-player" controls autoplay class="w-100" {% if is_hls_processing %}style="display: none;"{% endif %}></video>
+        
         {% elif file.mime_type.startswith('video/') %}
-            <video controls autoplay class="w-100">
-                <source src="{{ url_for('download_file', file_id=file.id, inline=True, sharer_id=sharer_id) }}" type="{{ file.mime_type }}">
-                Your browser does not support the video tag.
-            </video>
+            {# Handle .mov files with special logic #}
+            {% if file.mime_type == 'video/quicktime' and not is_apple_device %}
+                <div id="conversion-prompt" class="text-center text-light w-100">
+                    <i class="bi bi-gear-wide-connected" style="font-size: 6rem;"></i>
+                    <p class="mt-3">This video needs to be converted for playback on your device.</p>
+                    <div class="mt-4">
+                        <button id="play-converted-btn" data-stream-url="{{ url_for('stream_converted_video', file_id=file.id) }}" class="btn btn-primary btn-lg me-2">
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
+                            Play as MP4
+                        </button>
+                        <a href="{{ url_for('download_converted_video', file_id=file.id) }}" class="btn btn-outline-light btn-lg">Download as MP4</a>
+                    </div>
+                </div>
+                <div id="converted-video-container" class="w-100" style="display: none;">
+                    <!-- Video player will be inserted here by JavaScript -->
+                </div>
+            {% else %}
+                <video controls autoplay class="w-100">
+                    <source src="{{ url_for('download_file', file_id=file.id, inline=True, sharer_id=sharer_id) }}" type="{{ file.mime_type }}">
+                    Your browser does not support the video tag.
+                </video>
+            {% endif %}
+
         {% elif file.mime_type.startswith('audio') %}
             <audio controls autoplay class="w-75">
                 <source src="{{ url_for('download_file', file_id=file.id, inline=True, sharer_id=sharer_id) }}" type="{{ file.mime_type }}">
@@ -232,50 +235,64 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Add keyboard shortcut to close preview
+    const playConvertedBtn = document.getElementById('play-converted-btn');
+    if (playConvertedBtn) {
+        playConvertedBtn.addEventListener('click', function() {
+            const conversionPrompt = document.getElementById('conversion-prompt');
+            const videoContainer = document.getElementById('converted-video-container');
+            const streamUrl = this.dataset.streamUrl;
+            const convertUrl = `/convert_video_to_mp4/{{ file.id }}`;
 
-    // --- HLS Video Streaming Logic ---
-    const hlsPlaylistUrl = {{ hls_playlist_url|tojson }};
-    const isHlsProcessing = {{ is_hls_processing|tojson }};
-    const videoPlayer = document.getElementById('video-player');
+            // Show a spinner and "Converting..." message
+            conversionPrompt.innerHTML = `
+                <div class="text-center text-light">
+                    <div class="spinner-border" style="width: 3rem; height: 3rem;" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-3">Converting video... This may take a moment.</p>
+                </div>
+            `;
 
-    function setupHlsPlayer(url) {
-        if (Hls.isSupported()) {
-            const hls = new Hls();
-            hls.loadSource(url);
-            hls.attachMedia(videoPlayer);
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                videoPlayer.play();
-            });
-        } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native HLS support (e.g., Safari)
-            videoPlayer.src = url;
-            videoPlayer.addEventListener('loadedmetadata', function() {
-                videoPlayer.play();
-            });
-        }
-    }
+            // Function to create and play the video
+            function playVideo() {
+                const video = document.createElement('video');
+                video.controls = true;
+                video.autoplay = true;
+                video.className = 'w-100';
+                video.src = streamUrl;
 
-    if (hlsPlaylistUrl) {
-        // If the playlist is already available, just set it up.
-        setupHlsPlayer(hlsPlaylistUrl);
-    } else if (isHlsProcessing) {
-        // If it's processing, poll for the playlist file.
-        const pollInterval = setInterval(() => {
-            const checkUrl = `/hls/{{ file.id }}/playlist.m3u8`;
-            fetch(checkUrl)
-                .then(response => {
-                    if (response.ok) {
-                        // Playlist is now available!
-                        clearInterval(pollInterval);
-                        document.getElementById('video-processing-indicator').style.display = 'none';
-                        videoPlayer.style.display = 'block';
-                        setupHlsPlayer(checkUrl);
+                video.addEventListener('canplay', function() {
+                    conversionPrompt.style.display = 'none';
+                    videoContainer.style.display = 'block';
+                });
+
+                video.addEventListener('error', function() {
+                    videoContainer.style.display = 'none';
+                    conversionPrompt.style.display = 'block';
+                    conversionPrompt.innerHTML = '<p class="text-danger">Could not play the converted video. Please try downloading it instead.</p>';
+                });
+
+                videoContainer.appendChild(video);
+            }
+
+            // Start the conversion on the backend
+            fetch(convertUrl, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Conversion is done (or was already done), now we can play it.
+                        playVideo();
+                    } else {
+                        // Conversion failed on the backend
+                        throw new Error(data.error || 'Conversion failed on the server.');
                     }
                 })
-                .catch(err => console.error("Polling for HLS playlist failed:", err));
-        }, 3000); // Poll every 3 seconds
+                .catch(error => {
+                    console.error('Conversion trigger failed:', error);
+                    conversionPrompt.innerHTML = `<p class="text-danger">Could not start video conversion. Please try again.</p>`;
+                });
+        });
     }
-    // --- End HLS Logic ---
 
     document.addEventListener('keydown', function(e) {
         if (e.key === "Escape") {

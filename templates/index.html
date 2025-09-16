@@ -783,15 +783,9 @@
         }
 
         // For Mobile View
-        const mobileContainer = document.querySelector('.d-md-none');
+        const mobileContainer = document.getElementById('mobile-card-list-container');
         if (mobileContainer) {
-            // Insert before the grid view container
-            const gridViewInMobile = mobileContainer.querySelector('#grid-view-container');
-            if (gridViewInMobile) {
-                mobileContainer.insertBefore(createMobileCard(file), gridViewInMobile);
-            } else {
-                 mobileContainer.appendChild(createMobileCard(file));
-            }
+            mobileContainer.appendChild(createMobileCard(file));
         }
     }
 
