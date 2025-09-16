@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block title %}My Storage{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>My Storage Usage</h2>
+    <hr>
+
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">Storage Overview</h5>
+            <p class="card-text">Total Files: {{ total_files }}</p>
+            <p class="card-text">Used Storage: {{ "%.2f"|format(total_size / 1024 / 1024 / 1024) }} GB</p>
+            {% if current_user.plan %}
+                <p class="card-text">Plan Limit: {{ "%.0f"|format(current_user.plan.size_limit / 1024 / 1024 / 1024) }} GB</p>
+                <div class="progress">
+                    <div class="progress-bar" role="progressbar" style="width: {{ (total_size / current_user.plan.size_limit) * 100 }}%;" aria-valuenow="{{ (total_size / current_user.plan.size_limit) * 100 }}" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+            {% else %}
+                <p class="card-text">No active plan.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

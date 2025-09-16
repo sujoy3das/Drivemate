@@ -1,0 +1,22 @@
+<!-- Manage Shares Modal -->
+<div class="modal fade" id="manageSharesModal" tabindex="-1" aria-labelledby="manageSharesModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="manageSharesModalLabel">Manage Sharing</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>File: "<strong id="manage-shares-filename"></strong>"</p>
+        <h6>Shared with:</h6>
+        <div id="manage-shares-list-container" style="min-height: 100px;">
+            <!-- Share list will be populated by JS -->
+            <div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>

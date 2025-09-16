@@ -1,0 +1,38 @@
+<!-- Share with User Modal (generic, will be populated by JS) -->
+<div class="modal fade" id="shareWithUserModal" tabindex="-1" aria-labelledby="shareWithUserModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="shareWithUserModalLabel">Share with User</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="share-with-user-form">
+          <input type="hidden" id="share-file-ids" name="file_ids">
+          <input type="hidden" id="share-folder-ids" name="folder_ids">
+          <p>Share "<strong id="share-filename-display"></strong>" with another user.</p>
+          <div class="mb-3">
+            <label for="recipient_email" class="form-label">Recipient's Email</label>
+            <input type="email" class="form-control" id="recipient_email" name="recipient_email" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Permissions</label>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="can_download" id="can_download">
+              <label class="form-check-label" for="can_download">Allow download</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="can_copy" id="can_copy">
+              <label class="form-check-label" for="can_copy">Allow user to make a copy</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="can_reshare" id="can_reshare">
+              <label class="form-check-label" for="can_reshare">Allow user to re-share</label>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Share</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>

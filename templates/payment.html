@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+
+{% block title %}Process Payment{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Confirm Your Purchase</h2>
+                </div>
+                <div class="card-body">
+                    <p>You are about to purchase the following plan:</p>
+                    <ul class="list-group list-group-flush mb-3">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Plan Name
+                            <strong>{{ plan.name }}</strong>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Storage Limit
+                            <strong>{{ "%.0f"|format(plan.size_limit / 1024 / 1024 / 1024) }} GB</strong>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Duration
+                            <strong>{{ plan.duration }} Months</strong>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center fs-4">
+                            <strong>Total Amount</strong>
+                            <strong>₹{{ "%.2f"|format(amount) }}</strong>
+                        </li>
+                    </ul>
+
+                    <div class="d-grid">
+                        <button id="rzp-button1" class="btn btn-lg btn-success">Pay with Razorpay</button>
+                    </div>
+                </div>
+                <div class="card-footer text-center">
+                    <a href="{{ url_for('pricing') }}">Cancel and return to pricing</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+var options = {
+    "key": "{{ razorpay_key_id }}",
+    "amount": "{{ (amount * 100)|int }}", // Amount is in currency subunits. Default currency is INR.
+    "currency": "INR",
+    "name": "DriveMate",
+    "description": "Plan Purchase - {{ plan.name }}",
+    "image": "https://example.com/your_logo.jpg", // Optional: Add your logo URL
+    "order_id": "{{ razorpay_order_id }}",
+    "handler": function (response){
+        // This function will be called after the payment is successful.
+        // We will submit the payment details to our server for verification.
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.action = "{{ url_for('payment_verification') }}";
+
+        var paymentIdInput = document.createElement('input');
+        paymentIdInput.type = 'hidden';
+        paymentIdInput.name = 'razorpay_payment_id';
+        paymentIdInput.value = response.razorpay_payment_id;
+        form.appendChild(paymentIdInput);
+
+        var orderIdInput = document.createElement('input');
+        orderIdInput.type = 'hidden';
+        orderIdInput.name = 'razorpay_order_id';
+        orderIdInput.value = response.razorpay_order_id;
+        form.appendChild(orderIdInput);
+
+        var signatureInput = document.createElement('input');
+        signatureInput.type = 'hidden';
+        signatureInput.name = 'razorpay_signature';
+        signatureInput.value = response.razorpay_signature;
+        form.appendChild(signatureInput);
+
+        document.body.appendChild(form);
+        form.submit();
+    },
+    "prefill": {
+        "name": "{{ user_name }}",
+        "email": "{{ user_email }}",
+    },
+    "theme": {
+        "color": "#3399cc"
+    }
+};
+var rzp1 = new Razorpay(options);
+document.getElementById('rzp-button1').onclick = function(e){
+    rzp1.open();
+    e.preventDefault();
+}
+
+rzp1.on('payment.failed', function (response){
+        alert("Payment Failed: " + response.error.description);
+        window.location.href = "{{ url_for('pricing') }}";
+});
+</script>
+{% endblock %}

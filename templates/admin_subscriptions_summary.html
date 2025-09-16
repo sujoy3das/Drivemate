@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin - Subscriptions Summary{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Subscriptions Summary</h2>
+    <hr>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">Overall Subscription Statistics</h5>
+            <p class="card-text">Total Subscriptions (including inactive): {{ subscriptions|length }}</p>
+            {% for item in plans_with_counts %}
+                <p class="card-text">{{ item.name }} Plan Active Subscribers: <strong>{{ item.count }}</strong></p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <h3>All Subscriptions</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th scope="col">User Email</th>
+                <th scope="col">Plan Name</th>
+                <th scope="col">Start Date</th>
+                <th scope="col">End Date</th>
+                <th scope="col">Active</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sub in subscriptions %}
+                <tr>
+                    <td>{{ sub.user.email }}</td>
+                    <td>{{ sub.plan.name }}</td>
+                    <td>{{ sub.start_date.strftime('%Y-%m-%d') }}</td>
+                    <td>{{ sub.end_date.strftime('%Y-%m-%d') }}</td>
+                    <td>{% if sub.active %}Yes{% else %}No{% endif %}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+</div>
+{% endblock %}

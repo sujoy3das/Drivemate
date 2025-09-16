@@ -1,0 +1,26 @@
+<!-- Copy Item Modal -->
+<div class="modal fade" id="copyModal" tabindex="-1" aria-labelledby="copyModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="copyModalLabel">Copy Item</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Copy "<strong id="copy-item-name"></strong>" to:</p>
+        <form id="copy-item-form" action="{{ url_for('copy_item') }}" method="post">
+          <input type="hidden" id="copy-file-id" name="file_id">
+          <input type="hidden" id="copy-folder-id" name="folder_id">
+          <div class="mb-3">
+            <label for="copy_destination_folder_id" class="form-label">Destination</label>
+            <select class="form-select" id="copy_destination_folder_id" name="destination_folder_id">
+              <option value="None">Home (Root)</option>
+              {% for folder in all_folders %}<option value="{{ folder.id }}">{{ folder.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">Copy</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>

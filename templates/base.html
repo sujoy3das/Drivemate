@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <title>{% block title %}{% endblock %}</title>
+    <style>
+        body {
+            padding-top: 70px; /* Add padding to the top of the body to offset the fixed navbar */
+        }
+        /* Style for links to look like normal text until hovered */
+        .discreet-link {
+            text-decoration: none;
+            color: inherit;
+        }
+        .discreet-link:hover, .discreet-link:focus {
+            text-decoration: underline;
+        }
+
+        /* Custom transition for alert fade out */
+        .alert.fade {
+            transition: opacity 0.5s ease-out;
+        }
+
+        /* Bottom Navigation for Mobile */
+        .bottom-nav {
+            display: none; /* Hidden by default */
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: #f8f9fa; /* Light background */
+            border-top: 1px solid #dee2e6;
+            z-index: 1030; /* Above other content */
+        }
+
+        .bottom-nav .nav-item {
+            flex-grow: 1;
+            text-align: center;
+        }
+
+        .bottom-nav .nav-link {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 0.5rem 0;
+            font-size: 0.75rem;
+            color: #6c757d; /* Muted text color */
+        }
+
+        .bottom-nav .nav-link + .nav-link {
+            margin-left: 0.5rem;
+        }
+
+        .bottom-nav .nav-link i {
+            font-size: 1.5rem;
+        }
+
+        @media (max-width: 767.98px) {
+            .desktop-actions { display: none !important; }
+            .bottom-nav { display: flex; }
+            .container { padding-bottom: 70px; } /* Prevent content from being hidden by the nav bar */
+        }
+    </style>
+    <style>
+        /* This ensures the desktop multi-select bar is only shown on desktop when active */
+        @media (min-width: 768px) {
+            #multi-select-actions.active {
+                display: flex !important;
+            }
+        }
+
+        /* Animation for the notification bell when active */
+        .nav-link.is-active .bi-bell {
+            animation: ring-animation 1.5s ease-in-out infinite;
+        }
+
+        @keyframes ring-animation {
+            0%, 100% { transform: rotate(0); }
+            10%, 30%, 50%, 70%, 90% { transform: rotate(-10deg); }
+            20%, 40%, 60%, 80% { transform: rotate(10deg); }
+        }
+        .badge.rounded-pill {
+            font-size: 0.6em; /* Make text slightly smaller to fit better */
+        }
+        .notification-bell-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+        .notification-bell-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            color: var(--bs-primary); /* Blue color for progress */
+            clip-path: inset(100% 0 0 0); /* Initially hidden from top */
+            transition: clip-path 0.2s linear;
+        }
+        .is-uploading .notification-bell-fill {
+            clip-path: inset(calc(100% - var(--upload-progress, 0%)) 0 0 0);
+        }
+        @keyframes upload-complete-shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+        .upload-complete .notification-bell-wrapper {
+            /* Apply a shake animation to indicate completion */
+            animation: upload-complete-shake 0.82s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        .notification-bell-wrapper .badge {
+            font-size: 0.6em;
+        }
+        /* Custom Share Zip Overlay */
+        .share-zip-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1055; /* Above modals */
+            display: none; /* Hidden by default */
+            justify-content: center;
+            align-items: center;
+        }
+        .share-zip-dialog {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            text-align: center;
+            max-width: 90%;
+            width: 400px;
+        }
+        .share-zip-dialog .icon {
+            font-size: 4rem;
+            color: var(--bs-primary);
+        }
+
+    </style>
+  </head>
+  <body>
+    <!-- Loading Spinner Overlay -->
+    <div id="loading-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255, 255, 255, 0.8); z-index: 1060; justify-content: center; align-items: center;">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p id="loading-text" class="ms-3 mb-0 text-primary fs-5">Working...</p>
+    </div>
+
+    <!-- Notification Toast Container -->
+    <div class="position-fixed top-0 start-50 translate-middle-x p-3" style="z-index: 1070">
+        <div id="notification-toast" class="toast hide" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <i class="bi bi-bell-fill me-2"></i>
+                <strong class="me-auto">DriveMate Notification</strong>
+                <small>Just now</small>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body">
+                <!-- Notification message will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <nav class="navbar navbar-expand-lg navbar-light bg-light fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <!-- Replace this with your actual logo image -->
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="DriveMate Logo" style="height: 30px;">
+            </a>
+
+            <!-- Mobile Search Form - Visible on mobile only -->
+            {% if request.endpoint in ['index', 'shared_with_me'] %}
+            {% set search_action = url_for('index', folder_id=request.view_args.get('folder_id')) if request.endpoint == 'index' else url_for('shared_with_me') %}
+            <form class="d-md-none flex-grow-1 mx-2" method="get" action="{{ search_action }}">
+                <div class="input-group">
+                    <input type="text" class="form-control form-control-sm" name="search" placeholder="Search..." value="{{ request.args.get('search', '') }}">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit"><i class="bi bi-search"></i></button>
+                </div>
+            </form>
+            {% endif %}
+
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                    <ul class="navbar-nav ms-auto">
+                        <!-- Notification Dropdown (Desktop) -->
+                        <li class="nav-item dropdown d-none d-lg-block">
+                            <a class="nav-link" href="#" id="notificationDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-upload-indicator>
+                                <span class="notification-bell-wrapper">
+                                    <i class="bi bi-bell"></i>
+                                    {% if unread_notifications and unread_notifications|length > 0 %}
+                                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger border border-light">
+                                        {{ unread_notifications|length }}
+                                    </span>
+                                    {% endif %}
+                                    <i class="bi bi-bell-fill notification-bell-fill"></i>
+                                </span>
+                            </a>
+                            <ul id="notification-list" class="dropdown-menu dropdown-menu-end" aria-labelledby="notificationDropdown" style="width: 350px; max-height: 400px;">
+                                <li class="px-3 py-2 d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">Activity</h6>
+                                    <button id="clear-notifications-btn" class="btn btn-sm btn-outline-secondary">Clear All</button>
+                                </li>
+                                <li><hr class="dropdown-divider my-0"></li>
+                                <!-- Server-rendered notifications -->
+                                {% for notification in unread_notifications|sort(attribute='created_at', reverse=True) %}
+                                    <li data-type="server"><a class="dropdown-item" href="{{ notification.link or '#' }}"><small><i class="bi bi-share-fill me-2"></i>{{ notification.message }}</small></a></li>
+                                {% endfor %}
+                                <!-- Placeholder for JS and empty state -->
+                                <li class="p-2 text-center text-muted" {% if unread_notifications %}style="display: none;"{% endif %}>No new notifications</li>
+                            </ul>
+                        </li>
+                        <!-- End Notification Dropdown -->
+
+                        {% if current_user.is_authenticated %}
+                            <li class="nav-item">
+                                <span class="nav-link">Welcome, {{ current_user.name }}!</span>
+                            </li>
+                            {% if current_user.role == 'admin' %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a>
+                                </li>
+                            {% else %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{{ url_for('index') }}">My Files</a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{{ url_for('pricing') }}">Pricing</a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{{ url_for('storage') }}">Storage</a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{{ url_for('subscription') }}">Subscription</a>
+                                </li>
+                            {% endif %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+                            </li>
+                        {% else %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('login') }}">Login</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('register') }}">Register</a>
+                            </li>
+                        {% endif %}
+                    </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+      {% block content %}{% endblock %}
+    </div>
+
+    <!-- Custom Share Zip Overlay -->
+    <div id="shareZipOverlay" class="share-zip-overlay">
+        <div class="share-zip-dialog">
+            <h5>Your Zip is Ready</h5>
+            <p class="text-muted">Your zip file has been created. Click below to share it.</p>
+            <div class="icon my-3">
+                <i class="bi bi-file-earmark-zip-fill"></i>
+            </div>
+            <p id="share-zip-filename" class="mt-2 fw-bold"></p>
+            <div class="mt-4">
+                <button type="button" class="btn btn-secondary" id="share-zip-cancel-btn">Cancel</button>
+                <button type="button" class="btn btn-primary" id="share-zip-confirm-btn">Share Now</button>
+            </div>
+        </div>
+    </div>
+
+    {% include '_copy_modal.html' %}
+
+    <!-- Optional JavaScript; choose one of the two! -->
+
+    <!-- Option 1: Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+<script>
+    // Global function to show a toast notification
+    function showToast(message, isError = false) {
+        const toastEl = document.getElementById('notification-toast');
+        if (!toastEl) return;
+
+        const toastBody = toastEl.querySelector('.toast-body');
+        const toastHeader = toastEl.querySelector('.toast-header');
+        toastBody.textContent = message;
+
+        toastHeader.classList.toggle('bg-danger', isError);
+        toastHeader.classList.toggle('text-white', isError);
+
+        const toast = new bootstrap.Toast(toastEl);
+        toast.show();
+    }
+
+    // Process flashed messages from the server and show them as toasts
+    document.addEventListener('DOMContentLoaded', function() {
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                const flashedMessages = {{ messages|tojson }};
+                flashedMessages.forEach(([category, message], index) => {
+                    // Stagger the toasts slightly if there are multiple
+                    setTimeout(() => {
+                        const isError = category === 'danger' || category === 'warning';
+                        showToast(message, isError);
+                    }, index * 700); // 0.7-second delay between toasts
+                });
+            {% endif %}
+        {% endwith %}
+
+        // Mark notifications as read when dropdown is opened
+        const notificationDropdown = document.getElementById('notificationDropdown');
+        if (notificationDropdown) {
+            notificationDropdown.addEventListener('show.bs.dropdown', async function () {
+                // Find and remove the badge
+                const badge = this.querySelector('.badge');
+                if (badge) {
+                    // Use a short delay to allow the server to process before the user reloads
+                    setTimeout(() => badge.remove(), 500);
+                }
+                // Tell the server to mark them as read
+                await fetch("{{ url_for('mark_notifications_as_read') }}", { method: 'POST' });
+            });
+        }
+
+        const mobileNotificationDropdown = document.getElementById('mobileNotificationDropdown');
+        if (mobileNotificationDropdown) {
+            mobileNotificationDropdown.addEventListener('show.bs.dropdown', async function () {
+                const badge = this.querySelector('.badge');
+                if (badge) {
+                    setTimeout(() => badge.remove(), 500);
+                }
+                await fetch("{{ url_for('mark_notifications_as_read') }}", { method: 'POST' });
+            });
+        }
+
+        // --- Custom Share Zip Overlay Logic ---
+        const shareZipOverlay = document.getElementById('shareZipOverlay');
+        const shareZipConfirmBtn = document.getElementById('share-zip-confirm-btn');
+        const shareZipCancelBtn = document.getElementById('share-zip-cancel-btn');
+
+        shareZipCancelBtn?.addEventListener('click', () => {
+            shareZipOverlay.style.display = 'none';
+        });
+
+        shareZipConfirmBtn?.addEventListener('click', function() {
+            // Hide the overlay immediately to ensure the browser context is clean.
+            shareZipOverlay.style.display = 'none';
+
+            const zipFile = this.zipFile;
+            if (!zipFile) {
+                console.error("Share Zip Error: zipFile object not found on button.");
+                showToast('An error occurred, no file to share.', true);
+                return;
+            }
+
+            const DIRECT_SHARE_LIMIT_MB = 50;
+            const zipSizeMB = zipFile.size / 1024 / 1024;
+            const canShareFiles = navigator.canShare && navigator.canShare({ files: [zipFile] });
+
+            if (zipSizeMB <= DIRECT_SHARE_LIMIT_MB && canShareFiles) {
+                // Now that the overlay is gone, we can safely call share.
+                navigator.share({ files: [zipFile] }).catch((err) => {
+                    // Only log an error if it wasn't a user cancellation.
+                    if (err.name !== 'AbortError') {
+                        console.error("Direct share failed. Error:", err);
+                    } else {
+                        console.log("Share was cancelled by the user.");
+                    }
+                });
+                return;
+            }
+
+            // --- Fallback to link sharing ---
+            showLoader('File is large, generating a shareable link...');
+            const fileIds = this.dataset.fallbackFileIds;
+            const folderIds = this.dataset.fallbackFolderIds;
+            const selectionName = this.dataset.fallbackSelectionName;
+
+            fetch(`/generate-public-selection-link?file_ids=${fileIds}&folder_ids=${folderIds}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.link) throw new Error("Link generation failed on server.");
+                    return navigator.share({ title: `Shared Zip from DriveMate`, text: `Link to download ${selectionName}.zip`, url: data.link });
+                })
+                .catch(err => showToast('Could not share the link.', true))
+                .finally(hideLoader);
+        });
+
+        // --- Copy Item Modal Logic ---
+        const copyItemForm = document.getElementById('copy-item-form');
+        if (copyItemForm) {
+            copyItemForm.addEventListener('submit', function() {
+                showLoader('Copying item(s)... This may take a moment.');
+            });
+        }
+    });
+</script>
+<script>
+    // Global functions for loading spinner
+    function showLoader(text = 'Working...') {
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) {
+            document.getElementById('loading-text').textContent = text;
+            loadingOverlay.style.display = 'flex'; // Show the overlay
+        }
+    }
+
+    function hideLoader() {
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
+        }
+    }
+</script>
+    
+
+    <!-- Option 2: Separate Popper and Bootstrap JS -->
+    <!--
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js" integrity="sha384-IQsoLXl5PILFhosVNubq5LC7Qb9DXgDA9i+tQ8Zj3iwWAwPtgFTxbJ8NT4GN1R8p" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.min.js" integrity="sha384-cVKIPhGWiC2Al4u+LWgxfKTRIcfu0JTxR+EQDz/bgldoEyl4H0zUF0QKbrJ0EcQF" crossorigin="anonymous"></script>
+    -->
+  </body>
+</html>

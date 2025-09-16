@@ -1,0 +1,512 @@
+{% extends 'base.html' %}
+
+{% block head %}
+    {{ super() }}
+    <!-- HLS.js for streaming video playback -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+{% endblock %}
+{% block title %}Preview: {{ file.filename }}{% endblock %}
+
+{% block content %}
+<style>
+    .preview-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(20, 20, 20, 0.95);
+        z-index: 1050;
+        display: flex;
+        flex-direction: column;
+        padding-top: 56px; /* Navbar height */
+    }
+    .preview-header {
+        color: white;
+        padding: 0.5rem 1rem;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+    }
+    .preview-body {
+        flex-grow: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+        padding: 1rem;
+    }
+    .preview-body img, .preview-body video, .preview-body iframe {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+    .nav-arrow {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 2.5rem;
+        color: rgba(255, 255, 255, 0.7);
+        background-color: rgba(0, 0, 0, 0.3);
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        transition: all 0.2s ease-in-out;
+    }
+    .nav-arrow:hover {
+        color: white;
+        background-color: rgba(0, 0, 0, 0.6);
+    }
+    .nav-arrow.prev { left: 1rem; }
+    .nav-arrow.next { right: 1rem; }
+</style>
+
+<div class="preview-container">
+    <div class="preview-header">
+        <a href="{{ origin_url or url_for('index', folder_id=file.folder_id, sharer_id=sharer_id) }}" class="btn btn-outline-light me-3" title="Back to files"><i class="bi bi-arrow-left"></i></a>
+        <span class="text-truncate me-auto">{{ file.filename }}</span>
+        <a href="{{ url_for('download_file', file_id=file.id, sharer_id=sharer_id) }}" class="btn btn-outline-light me-2" title="Download"><i class="bi bi-download"></i></a>
+        <div class="dropdown">
+            <button class="btn btn-outline-light dropdown-toggle" type="button" id="previewActions" data-bs-toggle="dropdown" aria-expanded="false">
+                Actions
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="previewActions">
+                {% if file.user_id == current_user.id %}
+                    <li><a class="dropdown-item share-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                    <li><a class="dropdown-item manage-shares-trigger" href="#" data-bs-toggle="modal" data-bs-target="#manageSharesModal" data-item-id="{{ file.id }}" data-item-type="file" data-filename='{{ file.filename|tojson }}'><i class="bi bi-people-fill me-2"></i>Manage Sharing</a></li>
+                    <li><a class="dropdown-item share-link-trigger" href="#" data-file-id="{{ file.id }}"><i class="bi bi-link-45deg me-2"></i>Copy public link</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#renameFileModal{{ file.id }}"><i class="bi bi-pencil-square me-2"></i>Rename</a></li>
+                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#moveFileModal{{ file.id }}"><i class="bi bi-arrows-move me-2"></i>Move</a></li>
+                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#infoFileModal{{ file.id }}"><i class="bi bi-info-circle me-2"></i>File Information</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                        <form action="{{ url_for('delete_file', file_id=file.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this file?');">
+                            <button type="submit" class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Delete</button>
+                        </form>
+                    </li>
+                {% else %}
+                    <li>
+                        <a class="dropdown-item {% if not can_download_item(file, current_user) %}disabled{% endif %}" href="{{ url_for('download_file', file_id=file.id, sharer_id=sharer_id) if can_download_item(file, current_user) else '#' }}"><i class="bi bi-download me-2"></i>Download</a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item share-trigger {% if not can_download_item(file, current_user) %}disabled{% endif %}" href="#" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}' data-mime-type='{{ file.mime_type|tojson }}' data-size="{{ file.size }}"><i class="bi bi-share-fill me-2"></i>Share...</a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item copy-trigger {% if not can_copy_item(file, current_user) %}disabled{% endif %}" href="#" data-bs-toggle="modal" data-bs-target="#copyModal" data-item-id="{{ file.id }}" data-item-name='{{ file.filename|tojson }}' data-item-type="file"><i class="bi bi-clipboard-plus me-2"></i>Copy to My Files</a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item share-user-trigger {% if not can_reshare_item(file, current_user) %}disabled{% endif %}" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a>
+                    </li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#infoFileModal{{ file.id }}"><i class="bi bi-info-circle me-2"></i>File Information</a></li>
+                    <li><span class="dropdown-item-text"><small>Owner: {{ file.user.name }}</small></span></li>
+                {% endif %}
+            </ul>
+        </div>
+    </div>
+
+    <div class="preview-body">
+        {% if file.mime_type.startswith('image/') %}
+            <img src="{{ url_for('download_file', file_id=file.id, inline=True, sharer_id=sharer_id) }}" class="img-fluid rounded">
+        {% elif file.mime_type == 'video/quicktime' %}
+            {# This block handles all .mov files for HLS streaming #}
+            {% if is_hls_processing %}
+            <div id="video-processing-indicator" class="text-center text-light">
+                <div class="spinner-border" style="width: 3rem; height: 3rem;" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-3">Preparing video for streaming... Playback will begin shortly.</p>
+            </div>
+            {% endif %}
+            <video id="video-player" controls autoplay class="w-100" {% if is_hls_processing %}style="display: none;"{% endif %}></video>
+        {% elif file.mime_type.startswith('video/') %}
+            <video controls autoplay class="w-100">
+                <source src="{{ url_for('download_file', file_id=file.id, inline=True, sharer_id=sharer_id) }}" type="{{ file.mime_type }}">
+                Your browser does not support the video tag.
+            </video>
+        {% elif file.mime_type.startswith('audio') %}
+            <audio controls autoplay class="w-75">
+                <source src="{{ url_for('download_file', file_id=file.id, inline=True, sharer_id=sharer_id) }}" type="{{ file.mime_type }}">
+                Your browser does not support the audio element.
+            </audio>
+        {% elif file.mime_type == 'application/pdf' %}
+            <iframe src="{{ url_for('download_file', file_id=file.id, inline=True) }}" style="width: 100%; height: 100%; border: none;"></iframe>
+        {% elif file.mime_type.startswith('text') %}
+            <pre class="bg-light p-3 rounded h-100 w-100" style="white-space: pre-wrap; word-wrap: break-word; overflow-y: auto;">{{ file_content }}</pre>
+        {% else %}
+            <div class="text-center text-light">
+                <i class="bi bi-file-earmark" style="font-size: 6rem;"></i>
+                <p class="mt-3">No preview available for this file type.</p>
+            </div>
+        {% endif %}
+
+        {% if previous_file_id %}
+            <a href="{{ previous_file_id }}" class="nav-arrow prev" title="Previous file"><i class="bi bi-chevron-left"></i></a>
+        {% endif %}
+        {% if next_file_id %}
+            <a href="{{ next_file_id }}" class="nav-arrow next" title="Next file"><i class="bi bi-chevron-right"></i></a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modals -->
+<!-- Rename File Modal -->
+<div class="modal fade" id="renameFileModal{{ file.id }}" tabindex="-1" aria-labelledby="renameFileModalLabel{{ file.id }}" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="renameFileModalLabel{{ file.id }}">Rename File</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="{{ url_for('rename_file', file_id=file.id) }}" method="post">
+          <div class="mb-3">
+            <label for="new_name" class="form-label">New Name</label>
+            <input type="text" class="form-control" id="new_name" name="new_name" value="{{ file.filename }}">
+          </div>
+          <button type="submit" class="btn btn-primary">Rename</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Move File Modal -->
+<div class="modal fade" id="moveFileModal{{ file.id }}" tabindex="-1" aria-labelledby="moveFileModalLabel{{ file.id }}" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="moveFileModalLabel{{ file.id }}">Move File</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="{{ url_for('move_file', file_id=file.id) }}" method="post">
+          <div class="mb-3">
+            <label for="new_folder_id" class="form-label">Move to</label>
+            <select class="form-select" id="new_folder_id" name="new_folder_id">
+              <option value="None">Home (Root)</option>
+              {% for folder in all_folders %}
+                {% if folder.id != file.folder_id %}
+                  <option value="{{ folder.id }}">{{ folder.name }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">Move</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- File Info Modal -->
+<div class="modal fade" id="infoFileModal{{ file.id }}" tabindex="-1" aria-labelledby="infoFileModalLabel{{ file.id }}" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="infoFileModalLabel{{ file.id }}">File Information</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p><strong>Type:</strong> {{ file.mime_type }}</p>
+        <p><strong>Size:</strong> {{ "%.2f"|format(file.size / 1024 / 1024) }} MB</p>
+        <p><strong>Owner:</strong> {{ file.user.name }}</p>
+        <p><strong>Modified:</strong> {{ file.created_at.strftime('%B %d, %Y %H:%M') }}</p>
+        <p><strong>Created:</strong> {{ file.created_at.strftime('%B %d, %Y %H:%M') }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% include '_share_with_user_modal.html' %}
+{% include '_manage_shares_modal.html' %}
+{% include '_copy_modal.html' %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add keyboard shortcut to close preview
+
+    // --- HLS Video Streaming Logic ---
+    const hlsPlaylistUrl = {{ hls_playlist_url|tojson }};
+    const isHlsProcessing = {{ is_hls_processing|tojson }};
+    const videoPlayer = document.getElementById('video-player');
+
+    function setupHlsPlayer(url) {
+        if (Hls.isSupported()) {
+            const hls = new Hls();
+            hls.loadSource(url);
+            hls.attachMedia(videoPlayer);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                videoPlayer.play();
+            });
+        } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native HLS support (e.g., Safari)
+            videoPlayer.src = url;
+            videoPlayer.addEventListener('loadedmetadata', function() {
+                videoPlayer.play();
+            });
+        }
+    }
+
+    if (hlsPlaylistUrl) {
+        // If the playlist is already available, just set it up.
+        setupHlsPlayer(hlsPlaylistUrl);
+    } else if (isHlsProcessing) {
+        // If it's processing, poll for the playlist file.
+        const pollInterval = setInterval(() => {
+            const checkUrl = `/hls/{{ file.id }}/playlist.m3u8`;
+            fetch(checkUrl)
+                .then(response => {
+                    if (response.ok) {
+                        // Playlist is now available!
+                        clearInterval(pollInterval);
+                        document.getElementById('video-processing-indicator').style.display = 'none';
+                        videoPlayer.style.display = 'block';
+                        setupHlsPlayer(checkUrl);
+                    }
+                })
+                .catch(err => console.error("Polling for HLS playlist failed:", err));
+        }, 3000); // Poll every 3 seconds
+    }
+    // --- End HLS Logic ---
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === "Escape") {
+            const backButton = document.querySelector('.preview-header a[title="Back to files"]');
+            if (backButton) backButton.click();
+        }
+    });
+
+    // This script handles the "Share with User" functionality specific to the preview page.
+
+    // 1. Handle triggering the modal
+    document.body.addEventListener('click', async function(e) {
+        const shareUserTrigger = e.target.closest('.share-user-trigger');
+        if (shareUserTrigger) {
+            e.preventDefault();
+            const fileId = shareUserTrigger.dataset.fileId;
+            const filename = JSON.parse(shareUserTrigger.dataset.filename);
+            document.getElementById('share-file-ids').value = fileId;
+            document.getElementById('share-folder-ids').value = '';
+            document.getElementById('share-filename-display').textContent = filename;
+        }
+
+        const manageSharesTrigger = e.target.closest('.manage-shares-trigger');
+        if (manageSharesTrigger) {
+            e.preventDefault();
+            const fileId = manageSharesTrigger.dataset.fileId;
+            const filename = JSON.parse(manageSharesTrigger.dataset.filename);
+            
+            const modalTitle = document.getElementById('manage-shares-filename');
+            const modalListContainer = document.getElementById('manage-shares-list-container');
+
+            modalTitle.textContent = filename;
+            modalListContainer.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div></div>'; // Show loader
+            fetchAndDisplayShares(fileId, modalListContainer);
+        }
+
+        const shareTrigger = e.target.closest('.share-trigger');
+        if (shareTrigger) {
+            e.preventDefault();
+
+            if (!navigator.share) {
+                showToast('Sharing is not supported on this browser.', true);
+                return;
+            }
+
+            showLoader('Preparing to share...');
+
+            const fileToShare = {
+                id: shareTrigger.dataset.fileId,
+                filename: JSON.parse(shareTrigger.dataset.filename),
+                mimeType: JSON.parse(shareTrigger.dataset.mimeType),
+                size: parseInt(shareTrigger.dataset.size, 10)
+            };
+
+            // --- Attempt 1: Share actual file ---
+            try {
+                const response = await fetch(`/download/${fileToShare.id}?inline=true`);
+                if (!response.ok) throw new Error(`Could not fetch ${fileToShare.filename}`);
+                const blob = await response.blob();
+                const fileObject = new File([blob], fileToShare.filename, { type: fileToShare.mimeType });
+
+                const shareData = { files: [fileObject] };
+                if (navigator.canShare && navigator.canShare(shareData)) {
+                    await navigator.share(shareData);
+                    hideLoader();
+                    return; // SUCCESS
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    console.log("User cancelled direct file share.");
+                    hideLoader();
+                    return; // Stop the process if user cancels
+                }
+                console.warn("Direct file share failed, falling back to link sharing. Error:", err);
+            }
+
+            // --- Attempt 2 (Fallback): Share a link ---
+            try {
+                const response = await fetch(`/generate-share-link/${fileToShare.id}`);
+                if (!response.ok) throw new Error('Could not generate link.');
+                const data = await response.json();
+                const shareData = { title: `Share: ${fileToShare.filename}`, text: `Link to ${fileToShare.filename}`, url: data.link };
+                await navigator.share(shareData);
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error("Link sharing also failed:", err);
+                    showToast('Could not initiate sharing. Please try again.', true);
+                } else {
+                    console.log("User cancelled link share.");
+                }
+            } finally {
+                hideLoader();
+            }
+        }
+
+        const linkShareTrigger = e.target.closest('.share-link-trigger');
+        if (linkShareTrigger) {
+            e.preventDefault();
+            if (!navigator.clipboard) {
+                showToast('Clipboard access is not supported on this browser.', true);
+                return;
+            }
+
+            showLoader('Generating link...');
+            const fileId = linkShareTrigger.dataset.fileId;
+
+            try {
+                const response = await fetch(`/generate-share-link/${fileId}`);
+                if (!response.ok) throw new Error('Could not generate link.');
+                const data = await response.json();
+                await navigator.clipboard.writeText(data.link);
+                showToast('Public link copied to clipboard!');
+            } catch (err) {
+                console.error("Link copy failed:", err);
+                showToast('Could not copy the link.', true);
+            } finally {
+                hideLoader();
+            }
+        }
+
+        const copyTrigger = e.target.closest('.copy-trigger');
+        if (copyTrigger) {
+            e.preventDefault();
+            const itemId = copyTrigger.dataset.itemId;
+            const itemName = JSON.parse(copyTrigger.dataset.itemName);
+            const itemType = copyTrigger.dataset.itemType;
+
+            document.getElementById('copy-item-name').textContent = itemName;
+            document.getElementById('copy-file-id').value = (itemType === 'file') ? itemId : '';
+            document.getElementById('copy-folder-id').value = (itemType === 'folder') ? itemId : '';
+            
+            const copyModalEl = document.getElementById('copyModal');
+            const copyModal = new bootstrap.Modal(copyModalEl);
+            copyModal.show();
+        }
+    });
+
+    // 2. Handle the form submission inside the modal
+    const shareWithUserForm = document.getElementById('share-with-user-form');
+    if (shareWithUserForm) {
+        shareWithUserForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            showLoader('Sharing file...');
+            const formData = new FormData(this);
+            try {
+                const response = await fetch("{{ url_for('share_with_user') }}", {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showToast(data.message);
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('shareWithUserModal'));
+                    modal.hide();
+                } else {
+                    showToast(data.error, true);
+                }
+            } catch (err) {
+                showToast('An unexpected error occurred. Please try again.', true);
+            } finally {
+                hideLoader();
+            }
+        });
+    }
+
+    const copyItemForm = document.getElementById('copy-item-form');
+    if (copyItemForm) {
+        copyItemForm.addEventListener('submit', function() {
+            showLoader('Copying item(s)... This may take a moment.');
+        });
+    }
+
+    async function fetchAndDisplayShares(fileId, container) {
+        try {
+            const response = await fetch(`/file/${fileId}/shares`);
+            const data = await response.json();
+
+            if (!data.success) {
+                container.innerHTML = `<p class="text-danger">${data.error}</p>`;
+                return;
+            }
+
+            if (data.shares.length === 0) {
+                container.innerHTML = '<p class="text-muted">Not shared with anyone.</p>';
+                return;
+            }
+
+            const list = document.createElement('ul');
+            list.className = 'list-group';
+            data.shares.forEach(share => {
+                const item = document.createElement('li');
+                item.className = 'list-group-item d-flex justify-content-between align-items-center';
+                item.innerHTML = `
+                    <span>
+                        <i class="bi bi-person-circle me-2"></i>
+                        ${share.name} <small class="text-muted">(${share.email})</small>
+                    </span>
+                    <button class="btn btn-sm btn-outline-danger unshare-btn" data-file-id="${fileId}" data-user-id="${share.id}">Remove</button>
+                `;
+                list.appendChild(item);
+            });
+            container.innerHTML = '';
+            container.appendChild(list);
+
+        } catch (error) {
+            container.innerHTML = '<p class="text-danger">Could not load sharing information.</p>';
+        }
+    }
+
+    document.getElementById('manageSharesModal')?.addEventListener('click', async function(e) {
+        if (e.target.classList.contains('unshare-btn')) {
+            const button = e.target;
+            const fileId = button.dataset.fileId;
+            const userId = button.dataset.userId;
+
+            if (confirm('Are you sure you want to un-share this file from this user?')) {
+                const formData = new FormData();
+                formData.append('file_id', fileId);
+                formData.append('user_id', userId);
+
+                const response = await fetch('/unshare-file', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                showToast(data.message || data.error, !data.success);
+                if (data.success) {
+                    button.closest('li').remove(); // Remove the user from the list
+                }
+            }
+        }
+    });
+});
+</script>
+
+{% endblock %}

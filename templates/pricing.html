@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block title %}Pricing Plans{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Our Pricing Plans</h2>
+    <hr>
+
+    <div class="row row-cols-1 row-cols-md-3 mb-3 text-center">
+        {% for plan in plans %}
+        <div class="col">
+            <div class="card mb-4 rounded-3 shadow-sm {% if current_user.plan_id == plan.id %}border-primary{% endif %}">
+                <div class="card-header py-3 {% if current_user.plan_id == plan.id %}text-white bg-primary border-primary{% endif %}">
+                    <h4 class="my-0 fw-normal">{{ plan.name }}</h4>
+                </div>
+                <div class="card-body">
+                    {% if plan.price is none or plan.price == 0 %}
+                        <h1 class="card-title pricing-card-title">Free</h1>
+                    {% else %}
+                        <h1 class="card-title pricing-card-title">${{ "%.2f"|format(plan.price) }}<small class="text-muted fw-light">/mo</small></h1>
+                    {% endif %}
+                    <ul class="list-unstyled mt-3 mb-4">
+                        <li>{{ "%.0f"|format(plan.size_limit / 1024 / 1024 / 1024) }} GB Storage</li>
+                        {% if plan.duration %}
+                            <li>{{ plan.duration }} Months Duration</li>
+                        {% else %}
+                            <li>Perpetual access</li>
+                        {% endif %}
+                        <li>Email support</li>
+                        <li>Help center access</li>
+                    </ul>
+                    {% if current_user.plan_id == plan.id %}
+                        <button type="button" class="w-100 btn btn-lg btn-outline-primary" disabled>Current Plan</button>
+                    {% elif not current_user.plan_id %}
+                        <a href="{{ url_for('subscribe', plan_id=plan.id) }}" class="w-100 btn btn-lg btn-primary">Get started</a>
+                    {% elif (plan.price or 0) > (current_user.plan.price or 0) %}
+                        <a href="{{ url_for('subscribe', plan_id=plan.id) }}" class="w-100 btn btn-lg btn-success">Upgrade</a>
+                    {% else %}
+                        <button type="button" class="w-100 btn btn-lg btn-secondary" disabled>Downgrade</button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

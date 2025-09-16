@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin - Manage Plans{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Manage Plans</h2>
+    <hr>
+
+    <form action="{{ url_for('create_plan') }}" method="post">
+        <div class="mb-3">
+            <label for="name" class="form-label">Plan Name</label>
+            <input type="text" class="form-control" id="name" name="name" required>
+        </div>
+        <div class="mb-3">
+            <label for="size_limit" class="form-label">Size Limit (GB)</label>
+            <input type="number" class="form-control" id="size_limit" name="size_limit" required>
+        </div>
+        <div class="mb-3">
+            <label for="price" class="form-label">Price</label>
+            <input type="number" step="0.01" class="form-control" id="price" name="price" required>
+        </div>
+        <div class="mb-3">
+            <label for="duration" class="form-label">Duration (months)</label>
+            <input type="number" class="form-control" id="duration" name="duration" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Create Plan</button>
+    </form>
+
+    <h3 class="mt-4">Existing Plans</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Size Limit</th>
+                <th scope="col">Price</th>
+                <th scope="col">Duration</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for plan in plans %}
+                <tr>
+                    <td>{{ plan.name }}</td>
+                    <td>{{ "%.0f"|format(plan.size_limit / 1024 / 1024 / 1024) }} GB</td>
+                    <td>
+                        {% if plan.price is none or plan.price == 0 %}
+                            Free
+                        {% else %}
+                            ${{ "%.2f"|format(plan.price) }}
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if plan.duration %}{{ plan.duration }} months{% else %}N/A{% endif %}
+                    </td>
+                    <td>
+                        <form action="{{ url_for('delete_plan', plan_id=plan.id) }}" method="post" style="display: inline;">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+</div>
+{% endblock %}

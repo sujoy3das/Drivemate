@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Admin Dashboard Overview</h2>
+    <hr>
+
+    <div class="row">
+        <div class="col-md-3">
+            <div class="card text-white bg-primary mb-3">
+                <div class="card-header">Total Users</div>
+                <div class="card-body">
+                    <h5 class="card-title">{{ total_users }}</h5>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-success mb-3">
+                <div class="card-header">Total Storage Used</div>
+                <div class="card-body">
+                    <h5 class="card-title">{{ "%.2f"|format(total_storage_used / 1024 / 1024 / 1024) }} GB</h5>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-info mb-3">
+                <div class="card-header">Active Subscriptions</div>
+                <div class="card-body">
+                    <h5 class="card-title">{{ total_active_subscriptions }}</h5>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-warning mb-3">
+                <div class="card-header">Total Earnings</div>
+                <div class="card-body">
+                    <h5 class="card-title">${{ "%.2f"|format(total_earnings) }}</h5>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h3 class="mt-4">Admin Sections</h3>
+    <div class="list-group">
+        <a href="{{ url_for('admin_plans') }}" class="list-group-item list-group-item-action">Manage Plans</a>
+        <a href="{{ url_for('admin_storage_summary') }}" class="list-group-item list-group-item-action">User Storage Summary</a>
+        <a href="{{ url_for('admin_subscriptions_summary') }}" class="list-group-item list-group-item-action">Subscriptions Summary</a>
+        <a href="{{ url_for('admin_earnings_summary') }}" class="list-group-item list-group-item-action">Earnings Summary</a>
+    </div>
+</div>
+{% endblock %}

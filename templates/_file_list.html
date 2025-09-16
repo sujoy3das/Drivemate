@@ -1,0 +1,469 @@
+<!-- List View -->
+<div id="list-view-container" style="min-height: 40vh;">
+    <!-- Desktop Table View -->
+    <div class="d-none d-md-block table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th scope="col" style="width: 1rem;">
+                        <input class="form-check-input" type="checkbox" id="select-all-checkbox" title="Select all">
+                    </th>
+                    <th scope="col" style="min-width: 250px;">Name</th>
+                    <th scope="col">Owner</th>
+                    <th scope="col">Size</th>
+                    <th scope="col">Last Modified</th>
+                    <th scope="col" class="text-end"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {# Show the virtual 'Shared' folder only in the root of the user's own files #}
+                {% if not current_folder and not is_shared_view %}
+                    <tr>
+                        <td></td> {# Checkbox column #}
+                        <td>
+                            <i class="bi bi-people-fill me-2 text-primary"></i>
+                            <a href="{{ url_for('shared_items') }}" class="discreet-link">Shared</a>
+                        </td>
+                        <td>-</td><td>-</td><td>-</td><td></td> {# Other columns #}
+                    </tr>
+                {% endif %}
+
+                {% for folder in folders %}
+                    <tr>
+                        <td class="align-middle">
+                            <input class="form-check-input item-checkbox" type="checkbox" data-id="{{ folder.id }}" data-type="folder">
+                        </td>
+                        <td>
+                            <i class="bi bi-folder-fill me-2 text-primary"></i>
+                            {# A virtual folder (a user) won't have a user_id. A real folder will. #}
+                            {# This directs to the correct view based on the folder type. #}
+                            {% if is_shared_view and not folder.user_id %}
+                                <a href="{{ url_for('shared_items', sharer_id=folder.id) }}" class="discreet-link">{{ folder.name }}</a>
+                            {% else %}
+                                {# If sharer_id is present, keep passing it along to maintain context #}
+                                <a href="{{ url_for('index', folder_id=folder.id, sharer_id=sharer_id) }}" class="discreet-link">{{ folder.name }}</a>
+                                {% if folder.user_id == current_user.id %}
+                                    {% set total_shares = get_total_shares(folder) %}
+                                    {% if total_shares > 0 %}
+                                        <span class="badge bg-secondary ms-2" title="{{ total_shares }} share(s)">{{ total_shares }}</span>
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td class="text-end">
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-light" type="button" id="dropdownMenuButtonFolder{{ folder.id }}" data-bs-toggle="dropdown" aria-expanded="false" data-bs-strategy="fixed">
+                                    <i class="bi bi-three-dots-vertical"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdownMenuButtonFolder{{ folder.id }}">
+                                    {# Actions are only available for real folders, not virtual ones #}
+                                    {% if is_shared_view and not folder.user_id %}
+                                        {# This is a virtual user folder, no actions #}
+                                    {% elif folder.user_id %}
+                                        <li><a class="dropdown-item" href="{{ url_for('download_folder', folder_id=folder.id) }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                        <li><a class="dropdown-item share-zip-trigger" href="#" data-folder-id="{{ folder.id }}" data-folder-name='{{ folder.name|tojson }}'><i class="bi bi-file-earmark-zip-fill me-2"></i>Share as Zip</a></li>
+                                        {% if folder.user_id == current_user.id %}
+                                        <li><a class="dropdown-item manage-shares-trigger" href="#" data-bs-toggle="modal" data-bs-target="#manageSharesModal" data-item-id="{{ folder.id }}" data-item-type="folder" data-filename='{{ folder.name|tojson }}'><i class="bi bi-people-fill me-2"></i>Manage Sharing</a></li>
+                                        <li><a class="dropdown-item share-folder-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-folder-id="{{ folder.id }}" data-folder-name='{{ folder.name|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#renameFolderModal{{ folder.id }}"><i class="bi bi-pencil-square me-2"></i>Rename</a></li>
+                                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#moveFolderModal{{ folder.id }}"><i class="bi bi-arrows-move me-2"></i>Move</a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li>
+                                            <form action="{{ url_for('delete_folder', folder_id=folder.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this folder and all its contents?');">
+                                                <button type="submit" class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Delete</button>
+                                            </form>
+                                        </li>
+                                        {% else %}
+                                            {# User is viewing a shared folder they don't own #}
+                                            {% if can_download_item(folder, current_user) %}
+                                                <li><a class="dropdown-item" href="{{ url_for('download_folder', folder_id=folder.id) }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                            {% endif %}
+                                            {% if can_copy_item(folder, current_user) %}
+                                                <li><a class="dropdown-item copy-trigger" href="#" data-bs-toggle="modal" data-bs-target="#copyModal" data-item-id="{{ folder.id }}" data-item-name='{{ folder.name|tojson }}' data-item-type="folder"><i class="bi bi-clipboard-plus me-2"></i>Copy to My Files</a></li>
+                                            {% endif %}
+                                            {% if can_reshare_item(folder, current_user) %}
+                                                <li><a class="dropdown-item share-folder-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-folder-id="{{ folder.id }}" data-folder-name='{{ folder.name|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endif %}
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+                {% for file in files %}
+                    <tr>
+                        <td class="align-middle">
+                            <input class="form-check-input item-checkbox" type="checkbox" data-id="{{ file.id }}" data-type="file" data-mime-type='{{ file.mime_type|tojson }}' data-filename='{{ file.filename|tojson }}' data-size="{{ file.size }}">
+                        </td>
+                        <td>
+                            {% if file.mime_type.startswith('image/') %}<i class="bi bi-image me-2"></i>
+                            {% elif file.mime_type.startswith('video/') %}<i class="bi bi-film me-2"></i>
+                            {% elif file.mime_type.startswith('audio/') %}<i class="bi bi-music-note me-2"></i>
+                            {% elif file.mime_type == 'application/pdf' %}<i class="bi bi-file-earmark-pdf me-2"></i>
+                            {% elif file.mime_type in ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'] %}<i class="bi bi-file-earmark-word me-2"></i>
+                            {% elif file.mime_type in ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'] %}<i class="bi bi-file-earmark-excel me-2"></i>
+                            {% elif file.mime_type in ['application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'] %}<i class="bi bi-file-earmark-ppt me-2"></i>
+                            {% elif file.mime_type in ['application/zip', 'application/vnd.rar', 'application/x-rar-compressed', 'application/x-7z-compressed', 'application/gzip'] %}<i class="bi bi-file-earmark-zip me-2"></i>
+                            {% elif file.mime_type.startswith('text/') %}<i class="bi bi-file-earmark-text me-2"></i>
+                            {% else %}<i class="bi bi-file-earmark me-2"></i>{% endif %}
+                            <a href="{{ url_for('preview_file', file_id=file.id, origin=request.url, sharer_id=sharer_id) }}" class="discreet-link">{{ file.filename }}</a>
+                            {% if file.user_id == current_user.id and not is_shared_view %}
+                                {% set total_shares = get_total_shares(file) %}
+                                {% if total_shares > 0 %}
+                                    <span class="badge bg-secondary ms-2" title="{{ total_shares }} share(s)">{{ total_shares }}</span>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if file.user_id == current_user.id %}
+                                <span class="text-muted">Me</span>
+                            {% else %}
+                                {{ file.user.name }}
+                            {% endif %}
+                        </td>
+                        <td>{{ "%.2f"|format(file.size / 1024 / 1024) }} MB</td>
+                        <td>{{ file.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td class="text-end">
+                            <div class="dropdown d-inline-block">
+                                <button class="btn btn-sm btn-light" type="button" id="dropdownMenuButtonFile{{ file.id }}" data-bs-toggle="dropdown" aria-expanded="false" data-bs-strategy="fixed">
+                                    <i class="bi bi-three-dots-vertical"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdownMenuButtonFile{{ file.id }}">
+                                    {% if file.user_id == current_user.id %}
+                                        <li><a class="dropdown-item share-trigger" href="#" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}' data-mime-type='{{ file.mime_type|tojson }}' data-size="{{ file.size }}"><i class="bi bi-send me-2"></i>Share...</a></li>
+                                        <li><a class="dropdown-item" href="{{ url_for('preview_file', file_id=file.id, origin=request.url) }}"><i class="bi bi-eye me-2"></i>Preview</a></li>
+                                        <li><a class="dropdown-item" href="{{ url_for('download_file', file_id=file.id) }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                        <li><a class="dropdown-item share-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                        <li><a class="dropdown-item manage-shares-trigger" href="#" data-bs-toggle="modal" data-bs-target="#manageSharesModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-people-fill me-2"></i>Manage Sharing</a></li>
+                                        <li><a class="dropdown-item share-link-trigger" href="#" data-file-id="{{ file.id }}"><i class="bi bi-link-45deg me-2"></i>Copy public link</a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#renameFileModal{{ file.id }}"><i class="bi bi-pencil-square me-2"></i>Rename</a></li>
+                                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#moveFileModal{{ file.id }}"><i class="bi bi-arrows-move me-2"></i>Move</a></li>
+                                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#infoFileModal{{ file.id }}"><i class="bi bi-info-circle me-2"></i>File Information</a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li>
+                                            <form action="{{ url_for('delete_file', file_id=file.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this file?');">
+                                                <button type="submit" class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Delete</button>
+                                            </form>
+                                        </li>
+                                    {% else %}
+                                        {# User is viewing a shared file they don't own #}
+                                        <li><a class="dropdown-item" href="{{ url_for('preview_file', file_id=file.id, origin=request.url, sharer_id=sharer_id) }}"><i class="bi bi-eye me-2"></i>Preview</a></li>
+                                        <li><a class="dropdown-item {% if not can_download_item(file, current_user) %}disabled{% endif %}" href="{{ url_for('download_file', file_id=file.id, sharer_id=sharer_id) if can_download_item(file, current_user) else '#' }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                        <li><a class="dropdown-item share-trigger {% if not can_download_item(file, current_user) %}disabled{% endif %}" href="#" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}' data-mime-type='{{ file.mime_type|tojson }}' data-size="{{ file.size }}"><i class="bi bi-send me-2"></i>Share...</a></li>
+                                        <li>
+                                            <a class="dropdown-item copy-trigger {% if not can_copy_item(file, current_user) %}disabled{% endif %}" href="#" data-bs-toggle="modal" data-bs-target="#copyModal" data-item-id="{{ file.id }}" data-item-name='{{ file.filename|tojson }}' data-item-type="file"><i class="bi bi-clipboard-plus me-2"></i>Copy to My Files</a>
+                                        </li>
+                                        <li>
+                                            <a class="dropdown-item share-user-trigger {% if not can_reshare_item(file, current_user) %}disabled{% endif %}" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a>
+                                        </li>
+                                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#infoFileModal{{ file.id }}"><i class="bi bi-info-circle me-2"></i>File Information</a></li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Mobile Card List View -->
+    <div class="d-md-none">
+        {# Show the virtual 'Shared' folder only in the root of the user's own files #}
+        {% if not current_folder and not is_shared_view %}
+        <div class="card mb-2">
+            <div class="card-body p-2">
+                <div class="d-flex align-items-center">
+                    <div class="p-1"></div> {# Checkbox placeholder #}
+                    <div class="p-2"><a href="{{ url_for('shared_items') }}" class="text-decoration-none"><i class="bi bi-people-fill fs-2 text-primary"></i></a></div>
+                    <div class="flex-grow-1 ps-2" style="min-width: 0;">
+                        <a href="{{ url_for('shared_items') }}" class="text-decoration-none text-dark"><h6 class="mb-0 text-truncate">Shared</h6></a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% for folder in folders %}
+        <div class="card mb-2">
+            <div class="card-body p-2">
+                <div class="d-flex align-items-center">
+                    <div class="p-1"><input class="form-check-input item-checkbox" type="checkbox" data-id="{{ folder.id }}" data-type="folder"></div>
+                    {% if is_shared_view and not folder.user_id %}
+                        <div class="p-2"><a href="{{ url_for('shared_items', sharer_id=folder.id) }}" class="text-decoration-none"><i class="bi bi-folder-fill fs-2 text-primary"></i></a></div>
+                    {% else %}
+                        <div class="p-2"><a href="{{ url_for('index', folder_id=folder.id, sharer_id=sharer_id) }}" class="text-decoration-none"><i class="bi bi-folder-fill fs-2 text-primary"></i></a></div>
+                    {% endif %}
+                    <div class="flex-grow-1 ps-2" style="min-width: 0;">
+                        {% if is_shared_view and not folder.user_id %}
+                            <a href="{{ url_for('shared_items', sharer_id=folder.id) }}" class="text-decoration-none text-dark">
+                        {% else %}
+                            <a href="{{ url_for('index', folder_id=folder.id, sharer_id=sharer_id) }}" class="text-decoration-none text-dark">
+                        {% endif %}
+                            <h6 class="mb-0 text-truncate">{{ folder.name }}</h6>
+                        </a>
+                    </div>
+                    <div class="p-1" style="z-index: 2;">
+                        <div class="dropup">
+                            <button class="btn btn-sm btn-light" type="button" id="mobileDropdownMenuButtonFolder{{ folder.id }}" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="mobileDropdownMenuButtonFolder{{ folder.id }}">
+                                {% if folder.user_id %}
+                                    <li><a class="dropdown-item" href="{{ url_for('download_folder', folder_id=folder.id) }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                    <li><a class="dropdown-item share-zip-trigger" href="#" data-folder-id="{{ folder.id }}" data-folder-name='{{ folder.name|tojson }}'><i class="bi bi-file-earmark-zip-fill me-2"></i>Share as Zip</a></li>
+                                    {% if folder.user_id == current_user.id %}
+                                    <li><a class="dropdown-item manage-shares-trigger" href="#" data-bs-toggle="modal" data-bs-target="#manageSharesModal" data-item-id="{{ folder.id }}" data-item-type="folder" data-filename='{{ folder.name|tojson }}'><i class="bi bi-people-fill me-2"></i>Manage Sharing</a></li>
+                                    <li><a class="dropdown-item share-folder-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-folder-id="{{ folder.id }}" data-folder-name='{{ folder.name|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#renameFolderModal{{ folder.id }}"><i class="bi bi-pencil-square me-2"></i>Rename</a></li>
+                                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#moveFolderModal{{ folder.id }}"><i class="bi bi-arrows-move me-2"></i>Move</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><form action="{{ url_for('delete_folder', folder_id=folder.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this folder and all its contents?');"><button type="submit" class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Delete</button></form></li>
+                                    {% elif can_download_item(folder, current_user) or can_copy_item(folder, current_user) %}
+                                        {% if can_download_item(folder, current_user) %}
+                                            <li><a class="dropdown-item" href="{{ url_for('download_folder', folder_id=folder.id) }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                        {% endif %}
+                                        {% if can_copy_item(folder, current_user) %}
+                                            <li><a class="dropdown-item copy-trigger" href="#" data-bs-toggle="modal" data-bs-target="#copyModal" data-item-id="{{ folder.id }}" data-item-name='{{ folder.name|tojson }}' data-item-type="folder"><i class="bi bi-clipboard-plus me-2"></i>Copy to My Files</a></li>
+                                        {% endif %}
+                                        {% if can_reshare_item(folder, current_user) %}
+                                            <li><a class="dropdown-item share-folder-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-folder-id="{{ folder.id }}" data-folder-name='{{ folder.name|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                        {% endif %}
+                                    {% endif %}
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        {% for file in files %}
+        <div class="card mb-2">
+            <div class="card-body p-2">
+                <div class="d-flex align-items-center">
+                    <div class="p-1"><input class="form-check-input item-checkbox" type="checkbox" data-id="{{ file.id }}" data-type="file" data-mime-type='{{ file.mime_type|tojson }}' data-filename='{{ file.filename|tojson }}' data-size="{{ file.size }}"></div>
+                    <div class="p-2">
+                        <a href="{{ url_for('preview_file', file_id=file.id, origin=request.url) }}" class="text-decoration-none">
+                        {% if file.mime_type.startswith('image/') %}<i class="bi bi-image fs-2"></i>
+                        {% elif file.mime_type.startswith('video/') %}<i class="bi bi-film fs-2"></i>
+                        {% elif file.mime_type.startswith('audio/') %}<i class="bi bi-music-note fs-2"></i>
+                        {% elif file.mime_type == 'application/pdf' %}<i class="bi bi-file-earmark-pdf fs-2"></i>
+                        {% else %}<i class="bi bi-file-earmark fs-2"></i>{% endif %}
+                        </a>
+                    </div>
+                    <div class="flex-grow-1 ps-2" style="min-width: 0;">
+                        <a href="{{ url_for('preview_file', file_id=file.id, origin=request.url) }}" class="text-decoration-none text-dark">
+                            <h6 class="mb-0 text-truncate">{{ file.filename }}</h6>
+                        </a>
+                        <div class="small text-muted mt-1 text-nowrap overflow-hidden">
+                            <span>
+                                {% if file.user_id == current_user.id %}
+                                    Me
+                                {% else %}
+                                    {{ file.user.name }}
+                                {% endif %}
+                            </span>
+                            <span class="mx-1">&middot;</span>
+                            <span>{{ "%.2f"|format(file.size / 1024 / 1024) }} MB</span>
+                            <span class="mx-1">&middot;</span>
+                            <span>{{ file.created_at.strftime('%b %d') }}</span>
+                                    {% if file.user_shares|length > 0 %}
+                                <span class="mx-1">&middot;</span>
+                                <i class="bi bi-people-fill" title="Shared"></i>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="p-1" style="z-index: 2;">
+                        <div class="dropup">
+                            <button class="btn btn-sm btn-light" type="button" id="mobileDropdownMenuButtonFile{{ file.id }}" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="mobileDropdownMenuButtonFile{{ file.id }}">
+                                {% if file.user_id == current_user.id %}
+                                    <li><a class="dropdown-item share-trigger" href="#" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}' data-mime-type='{{ file.mime_type|tojson }}' data-size="{{ file.size }}"><i class="bi bi-share-fill me-2"></i>Share</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('preview_file', file_id=file.id, origin=request.url) }}"><i class="bi bi-eye me-2"></i>Preview</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('download_file', file_id=file.id) }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                    <li><a class="dropdown-item share-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                    <li><a class="dropdown-item manage-shares-trigger" href="#" data-bs-toggle="modal" data-bs-target="#manageSharesModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-people-fill me-2"></i>Manage Sharing</a></li>
+                                    <li><a class="dropdown-item share-link-trigger" href="#" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-link-45deg me-2"></i>Get public link</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#renameFileModal{{ file.id }}"><i class="bi bi-pencil-square me-2"></i>Rename</a></li>
+                                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#moveFileModal{{ file.id }}"><i class="bi bi-arrows-move me-2"></i>Move</a></li>
+                                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#infoFileModal{{ file.id }}"><i class="bi bi-info-circle me-2"></i>File Information</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><form action="{{ url_for('delete_file', file_id=file.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this file?');"><button type="submit" class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Delete</button></form></li>
+                                {% else %}
+                                    <li><a class="dropdown-item" href="{{ url_for('preview_file', file_id=file.id, origin=request.url, sharer_id=sharer_id) }}"><i class="bi bi-eye me-2"></i>Preview</a></li>
+                                    <li><a class="dropdown-item {% if not can_download_item(file, current_user) %}disabled{% endif %}" href="{{ url_for('download_file', file_id=file.id, sharer_id=sharer_id) if can_download_item(file, current_user) else '#' }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                    <li><a class="dropdown-item share-trigger {% if not can_download_item(file, current_user) %}disabled{% endif %}" href="#" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}' data-mime-type='{{ file.mime_type|tojson }}' data-size="{{ file.size }}"><i class="bi bi-share-fill me-2"></i>Share</a></li>
+                                    {% if can_copy_item(file, current_user) %}
+                                        <li><a class="dropdown-item copy-trigger" href="#" data-bs-toggle="modal" data-bs-target="#copyModal" data-item-id="{{ file.id }}" data-item-name='{{ file.filename|tojson }}' data-item-type="file"><i class="bi bi-clipboard-plus me-2"></i>Copy to My Files</a></li>
+                                    {% endif %}
+                                    {% if can_reshare_item(file, current_user) %}
+                                        <li><a class="dropdown-item share-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                    {% endif %}
+                                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#infoFileModal{{ file.id }}"><i class="bi bi-info-circle me-2"></i>File Information</a></li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Grid View -->
+<div id="grid-view-container" style="display: none;">
+    <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
+        {# Show the virtual 'Shared' folder only in the root of the user's own files #}
+        {% if not current_folder and not is_shared_view %}
+        <div class="col">
+            <div class="card h-100 text-center shadow-sm">
+                <a href="{{ url_for('shared_items') }}" class="text-decoration-none text-dark d-flex flex-column justify-content-center align-items-center h-100 p-2">
+                    <i class="bi bi-people-fill text-primary" style="font-size: 4rem;"></i>
+                    <p class="card-text text-truncate mt-2" title="Shared">Shared</p>
+                </a>
+            </div>
+        </div>
+        {% endif %}
+
+        {% for folder in folders %}
+        <div class="col">
+            <div class="card h-100 text-center shadow-sm">
+                <div class="position-absolute top-0 start-0 p-2" style="z-index: 10;">
+                    <input class="form-check-input item-checkbox" type="checkbox" data-id="{{ folder.id }}" data-type="folder">
+                </div>
+                <div class="position-absolute top-0 end-0 p-1" style="z-index: 10;">
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-light" type="button" id="gridDropdownMenuButtonFolder{{ folder.id }}" data-bs-toggle="dropdown" aria-expanded="false" data-bs-strategy="fixed">
+                            <i class="bi bi-three-dots-vertical"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="gridDropdownMenuButtonFolder{{ folder.id }}">
+                            {% if folder.user_id %}
+                                <li><a class="dropdown-item" href="{{ url_for('download_folder', folder_id=folder.id) }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                <li><a class="dropdown-item share-zip-trigger" href="#" data-folder-id="{{ folder.id }}" data-folder-name='{{ folder.name|tojson }}'><i class="bi bi-file-earmark-zip-fill me-2"></i>Share as Zip</a></li>
+                                {% if folder.user_id == current_user.id %}
+                                <li><a class="dropdown-item manage-shares-trigger" href="#" data-bs-toggle="modal" data-bs-target="#manageSharesModal" data-item-id="{{ folder.id }}" data-item-type="folder" data-filename='{{ folder.name|tojson }}'><i class="bi bi-people-fill me-2"></i>Manage Sharing</a></li>
+                                <li><a class="dropdown-item share-folder-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-folder-id="{{ folder.id }}" data-folder-name='{{ folder.name|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#renameFolderModal{{ folder.id }}"><i class="bi bi-pencil-square me-2"></i>Rename</a></li>
+                                <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#moveFolderModal{{ folder.id }}"><i class="bi bi-arrows-move me-2"></i>Move</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                    <li><form action="{{ url_for('delete_folder', folder_id=folder.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this folder and all its contents?');"><button type="submit" class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Delete</button></form></li>
+                                {% else %}
+                                    <li><a class="dropdown-item {% if not can_download_item(folder, current_user) %}disabled{% endif %}" href="{{ url_for('download_folder', folder_id=folder.id) if can_download_item(folder, current_user) else '#' }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                    {% if can_copy_item(folder, current_user) %}
+                                        <li><a class="dropdown-item copy-trigger" href="#" data-bs-toggle="modal" data-bs-target="#copyModal" data-item-id="{{ folder.id }}" data-item-name='{{ folder.name|tojson }}' data-item-type="folder"><i class="bi bi-clipboard-plus me-2"></i>Copy to My Files</a></li>
+                                    {% endif %}
+                                    {% if can_reshare_item(folder, current_user) %}
+                                        <li><a class="dropdown-item share-folder-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-folder-id="{{ folder.id }}" data-folder-name='{{ folder.name|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+                {% if is_shared_view and not folder.user_id %}
+                    <a href="{{ url_for('shared_items', sharer_id=folder.id) }}" class="text-decoration-none text-dark d-flex flex-column justify-content-center align-items-center h-100 p-2">
+                {% else %}
+                    <a href="{{ url_for('index', folder_id=folder.id, sharer_id=sharer_id) }}" class="text-decoration-none text-dark d-flex flex-column justify-content-center align-items-center h-100 p-2">
+                {% endif %}
+                    <i class="bi bi-folder-fill text-primary" style="font-size: 4rem;"></i>
+                    <p class="card-text text-truncate mt-2" title="{{ folder.name }}">{{ folder.name }}</p>
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+
+        {% for file in files %}
+        <div class="col">
+            <div class="card h-100 shadow-sm">
+                <div class="position-absolute top-0 start-0 p-2" style="z-index: 10;">
+                    <input class="form-check-input item-checkbox" type="checkbox" data-id="{{ file.id }}" data-type="file" data-mime-type='{{ file.mime_type|tojson }}' data-filename='{{ file.filename|tojson }}' data-size="{{ file.size }}">
+                </div>
+                <div class="position-absolute top-0 end-0 p-1" style="z-index: 10;">
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-light" type="button" id="gridDropdownMenuButtonFile{{ file.id }}" data-bs-toggle="dropdown" aria-expanded="false" data-bs-strategy="fixed">
+                            <i class="bi bi-three-dots-vertical"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="gridDropdownMenuButtonFile{{ file.id }}" data-bs-popper-config='{"strategy":"fixed"}'>
+                            {% if file.user_id == current_user.id %}
+                                <li><a class="dropdown-item share-trigger" href="#" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}' data-mime-type='{{ file.mime_type|tojson }}' data-size="{{ file.size }}"><i class="bi bi-share-fill me-2"></i>Share</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('preview_file', file_id=file.id, origin=request.url) }}"><i class="bi bi-eye me-2"></i>Preview</a></li>
+                               <li><a class="dropdown-item" href="{{ url_for('download_file', file_id=file.id) }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                <li><a class="dropdown-item share-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                <li><a class="dropdown-item manage-shares-trigger" href="#" data-bs-toggle="modal" data-bs-target="#manageSharesModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-people-fill me-2"></i>Manage Sharing</a></li>
+                                <li><a class="dropdown-item share-link-trigger" href="#" data-file-id="{{ file.id }}"><i class="bi bi-link-45deg me-2"></i>Copy public link</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#renameFileModal{{ file.id }}"><i class="bi bi-pencil-square me-2"></i>Rename</a></li>
+                                <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#moveFileModal{{ file.id }}"><i class="bi bi-arrows-move me-2"></i>Move</a></li>
+                                <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#infoFileModal{{ file.id }}"><i class="bi bi-info-circle me-2"></i>File Information</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <form action="{{ url_for('delete_file', file_id=file.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this file?');">
+                                        <button type="submit" class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Delete</button>
+                                    </form>
+                                </li>
+                            {% else %}
+                                <li><a class="dropdown-item" href="{{ url_for('preview_file', file_id=file.id, origin=request.url, sharer_id=sharer_id) }}"><i class="bi bi-eye me-2"></i>Preview</a></li>
+                                <li><a class="dropdown-item {% if not can_download_item(file, current_user) %}disabled{% endif %}" href="{{ url_for('download_file', file_id=file.id, sharer_id=sharer_id) if can_download_item(file, current_user) else '#' }}"><i class="bi bi-download me-2"></i>Download</a></li>
+                                <li><a class="dropdown-item share-trigger {% if not can_download_item(file, current_user) %}disabled{% endif %}" href="#" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}' data-mime-type='{{ file.mime_type|tojson }}' data-size="{{ file.size }}"><i class="bi bi-share-fill me-2"></i>Share</a></li>
+                                {% if can_copy_item(file, current_user) %}
+                                    <li><a class="dropdown-item copy-trigger" href="#" data-bs-toggle="modal" data-bs-target="#copyModal" data-item-id="{{ file.id }}" data-item-name='{{ file.filename|tojson }}' data-item-type="file"><i class="bi bi-clipboard-plus me-2"></i>Copy to My Files</a></li>
+                                {% endif %}
+                                {% if can_reshare_item(file, current_user) %}
+                                    <li><a class="dropdown-item share-user-trigger" href="#" data-bs-toggle="modal" data-bs-target="#shareWithUserModal" data-file-id="{{ file.id }}" data-filename='{{ file.filename|tojson }}'><i class="bi bi-person-plus-fill me-2"></i>Share with User</a></li>
+                                {% endif %}
+                                <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#infoFileModal{{ file.id }}"><i class="bi bi-info-circle me-2"></i>File Information</a></li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+                        <a href="{{ url_for('preview_file', file_id=file.id, origin=request.url, sharer_id=sharer_id) }}" class="text-decoration-none text-dark">
+                    {% if file.thumbnail_path %}
+                                <img data-src="{{ url_for('serve_thumbnail', filename=file.thumbnail_path, sharer_id=sharer_id) }}" class="card-img-top lazy-load" alt="{{ file.filename }}" style="height: 120px; object-fit: cover; background-color: #f0f0f0;">
+                    {% elif file.mime_type.startswith('image/') %}
+                        {# Fallback for older images without thumbnails #}
+                        <img data-src="{{ url_for('download_file', file_id=file.id, inline=True) }}" class="card-img-top lazy-load" alt="{{ file.filename }}" style="height: 120px; object-fit: cover; background-color: #f0f0f0;">
+                    {% elif file.mime_type.startswith('video/') %}
+                        {# Fallback for older videos without thumbnails - now with lazy loading #}
+                                <video muted preload="none" class="card-img-top lazy-load" style="height: 120px; object-fit: cover; background-color: #f0f0f0;" data-src="{{ url_for('download_file', file_id=file.id, inline=True, sharer_id=sharer_id) }}#t=0.5" data-type="{{ file.mime_type }}">
+                            <!-- The video source will be lazy-loaded by JavaScript -->
+                        </video>
+                    {% else %}
+                        <div class="text-center d-flex align-items-center justify-content-center" style="height: 120px; background-color: #f8f9fa;">
+                            {% if file.mime_type == 'application/pdf' %}
+                                <i class="bi bi-file-earmark-pdf" style="font-size: 3rem;"></i>
+                            {% elif file.mime_type in ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'] %}
+                                <i class="bi bi-file-earmark-word" style="font-size: 3rem;"></i>
+                            {% elif file.mime_type in ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'] %}
+                                <i class="bi bi-file-earmark-excel" style="font-size: 3rem;"></i>
+                            {% elif file.mime_type in ['application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'] %}
+                                <i class="bi bi-file-earmark-ppt" style="font-size: 3rem;"></i>
+                            {% elif file.mime_type.startswith('audio/') %}
+                                <i class="bi bi-music-note" style="font-size: 3rem;"></i>
+                            {% elif file.mime_type in ['application/zip', 'application/vnd.rar', 'application/x-rar-compressed', 'application/x-7z-compressed', 'application/gzip'] %}
+                                <i class="bi bi-file-earmark-zip" style="font-size: 3rem;"></i>
+                            {% else %}
+                                <i class="bi bi-file-earmark" style="font-size: 3rem;"></i>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                    <div class="card-body p-2">
+                        <p class="card-text text-truncate small" title="{{ file.filename }}">{{ file.filename }}
+                            {% if file.user_id == current_user.id %}
+                                {% set total_shares = get_total_shares(file) %}
+                                {% if total_shares > 0 %}
+                                    <span class="badge bg-secondary ms-1">{{ total_shares }}</span>
+                                {% endif %}
+                            {% endif %}
+                        </p>
+                    </div>
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>

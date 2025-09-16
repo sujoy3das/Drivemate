@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin - User Storage Summary{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>User Storage Summary</h2>
+    <hr>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">Overall Storage Usage</h5>
+            <p class="card-text">Total Storage Used Across All Users: {{ "%.2f"|format(total_storage_used / 1024 / 1024 / 1024) }} GB</p>
+        </div>
+    </div>
+
+    <h3>Individual User Storage</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th scope="col">User Name</th>
+                <th scope="col">Email</th>
+                <th scope="col">Used Storage</th>
+                <th scope="col">Plan</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+                <tr>
+                    <td>{{ user.name }}</td>
+                    <td>{{ user.email }}</td>
+                    <td>{{ "%.2f"|format(user.used_storage / 1024 / 1024 / 1024) }} GB</td>
+                    <td>{{ user.plan.name if user.plan else 'N/A' }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+</div>
+{% endblock %}

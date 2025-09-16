@@ -1,0 +1,1415 @@
+{% extends 'base.html' %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<div class="mt-4">
+    <h2>My Files</h2>
+
+    {% if current_user.plan %}
+    <div class="mb-4">
+        <div class="d-flex justify-content-between small">
+            <strong>Storage</strong>
+            <span>{{ "%.2f"|format(current_user.used_storage / 1024 / 1024 / 1024) }} GB / {{ "%.0f"|format(current_user.plan.size_limit / 1024 / 1024 / 1024) }} GB</span>
+        </div>
+        <div class="progress" style="height: 8px;">
+            <div class="progress-bar" role="progressbar" style="width: {{ (current_user.used_storage / current_user.plan.size_limit) * 100 }}%;" aria-valuenow="{{ (current_user.used_storage / current_user.plan.size_limit) * 100 }}" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+    </div>
+    {% endif %}
+
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            {% for crumb in breadcrumbs %}
+                {% if loop.last %}
+                    <li class="breadcrumb-item active" aria-current="page">{{ crumb.name }}</li>
+                {% else %}
+                    <li class="breadcrumb-item"><a href="{{ crumb.url }}">{{ crumb.name }}</a></li>
+                {% endif %}
+            {% else %}
+                {# Fallback for root directory #}
+                <li class="breadcrumb-item active" aria-current="page">Home</li>
+            {% endfor %}
+        </ol>
+    </nav>
+
+    <div class="row g-2 mb-3 d-none d-md-flex">
+        <div class="col-md-8 col-lg-9">
+            <form method="get" action="{{ url_for('index', folder_id=current_folder.id if current_folder else None) }}">
+                <div class="input-group">
+                    <input type="hidden" name="sort" value="{{ sort }}">
+                    <input type="text" class="form-control" name="search" placeholder="Search files and folders..." value="{{ search or '' }}">
+                    <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-search"></i></button>
+                </div>
+            </form>
+        </div>
+        <div class="col-md-4 col-lg-3 text-end">
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="sortMenuButton" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-sort-down"></i> Sort
+                </button>
+                <ul class="dropdown-menu" aria-labelledby="sortMenuButton">
+                    <li><a class="dropdown-item {% if sort == 'name_asc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='name_asc') }}">Name (A-Z)</a></li>
+                    <li><a class="dropdown-item {% if sort == 'name_desc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='name_desc') }}">Name (Z-A)</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item {% if sort == 'date_desc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='date_desc') }}">Date (Newest)</a></li>
+                    <li><a class="dropdown-item {% if sort == 'date_asc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='date_asc') }}">Date (Oldest)</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item {% if sort == 'type_asc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='type_asc') }}">File Type (A-Z)</a></li>
+                    <li><a class="dropdown-item {% if sort == 'type_desc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='type_desc') }}">File Type (Z-A)</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div id="multi-select-actions" class="d-none justify-content-between align-items-center mb-3 p-2 rounded bg-light shadow-sm">
+        <div>
+            <span id="selection-count" class="fw-bold">0 items selected</span>
+        </div>
+        <div>
+            <button id="deselect-all-btn" class="btn btn-light me-2" title="Deselect all"><i class="bi bi-x-lg"></i></button>
+            <div class="btn-group me-2">
+                <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-share-fill"></i> Share
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item share-trigger" href="#" data-share-mode="multi"><i class="bi bi-send me-2"></i>Share...</a></li>
+                    <li><a class="dropdown-item" href="#" id="multi-share-user-trigger"><i class="bi bi-person-plus-fill me-2"></i>Share with User...</a></li>
+                    <li><a class="dropdown-item" href="#" id="multi-share-zip-trigger"><i class="bi bi-file-earmark-zip-fill me-2"></i>Share as Zip</a></li>
+                    <li><a class="dropdown-item" href="#" id="multi-copy-public-link-trigger"><i class="bi bi-link-45deg me-2"></i>Copy Public Link</a></li>
+                </ul>
+            </div>
+            <div class="btn-group me-2">
+              <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-download"></i> Download
+              </button>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="#" id="download-individual-btn">Files</a></li>
+                <li><a class="dropdown-item" href="#" id="download-zip-btn">Zip</a></li>
+              </ul>
+            </div>
+            <button id="delete-selected-btn" class="btn btn-danger" title="Delete selected items"><i class="bi bi-trash"></i></button>
+        </div>
+    </div>
+
+    <div class="desktop-actions d-flex justify-content-between align-items-center mb-3">
+        <div class="btn-group" role="group" aria-label="View switch">
+            <button type="button" id="list-view-btn" class="btn btn-outline-secondary active" title="List view"><i class="bi bi-list"></i></button>
+            <button type="button" id="grid-view-btn" class="btn btn-outline-secondary" title="Grid view"><i class="bi bi-grid-fill"></i></button>
+        </div>
+        <div>
+            <button type="button" class="btn btn-primary me-2" data-bs-toggle="modal" data-bs-target="#uploadModal" title="Upload File">
+                <i class="bi bi-cloud-arrow-up-fill"></i>
+            </button>
+            <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#createFolderModal" title="Create Folder">
+                <i class="bi bi-folder-plus"></i>
+            </button>
+        </div>
+    </div>
+
+</div>
+
+<div id="file-browser-content">
+    {% include '_file_list.html' with context %}
+</div>
+
+<!-- Bottom Navigation for Mobile -->
+<div id="default-bottom-nav" class="bottom-nav nav">
+    <a href="#" class="nav-item nav-link" data-bs-toggle="modal" data-bs-target="#createFolderModal">
+        <i class="bi bi-folder-plus"></i>
+        <span>New Folder</span>
+    </a>
+    <a href="#" class="nav-item nav-link" data-bs-toggle="modal" data-bs-target="#uploadModal">
+        <i class="bi bi-cloud-arrow-up-fill"></i>
+        <span>Upload</span>
+    </a>
+    <a href="#" id="mobile-view-btn" class="nav-item nav-link">
+        <i class="bi bi-grid-fill"></i>
+        <span>View</span>
+    </a>
+    <!-- Mobile Sort Dropup -->
+    <div class="nav-item dropup">
+        <a href="#" class="nav-link" id="mobileSortDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-upload-indicator>
+            <i class="bi bi-sort-down"></i>
+            <span>Sort</span>
+        </a>
+        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="mobileSortDropdown">
+            <li><a class="dropdown-item {% if sort == 'name_asc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='name_asc') }}">Name (A-Z)</a></li>
+            <li><a class="dropdown-item {% if sort == 'name_desc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='name_desc') }}">Name (Z-A)</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item {% if sort == 'date_desc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='date_desc') }}">Date (Newest)</a></li>
+            <li><a class="dropdown-item {% if sort == 'date_asc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='date_asc') }}">Date (Oldest)</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item {% if sort == 'type_asc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='type_asc') }}">File Type (A-Z)</a></li>
+            <li><a class="dropdown-item {% if sort == 'type_desc' %}active{% endif %}" href="{{ url_for('index', folder_id=current_folder.id if current_folder else None, search=search, sort='type_desc') }}">File Type (Z-A)</a></li>
+        </ul>
+    </div>
+    <!-- Mobile Notification Dropup -->
+    <div class="nav-item dropup">
+        <a href="#" class="nav-link" id="mobileNotificationDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-upload-indicator>
+            <span class="notification-bell-wrapper">
+                <i class="bi bi-bell"></i>
+                {% if unread_notifications and unread_notifications|length > 0 %}
+                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger border border-light">{{ unread_notifications|length }}</span>
+                {% endif %}
+                <i class="bi bi-bell-fill notification-bell-fill"></i>
+            </span>
+            <span>Activity</span>
+        </a>
+        <ul id="mobile-notification-list" class="dropdown-menu dropdown-menu-end" aria-labelledby="mobileNotificationDropdown" style="width: 90vw; max-width: 400px; max-height: 400px;">
+            <li class="px-3 py-2 d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">Activity</h6>
+                <button id="mobile-clear-notifications-btn" class="btn btn-sm btn-outline-secondary">Clear All</button>
+            </li>
+            <li><hr class="dropdown-divider my-0"></li>
+            <!-- Server-rendered notifications for mobile -->
+            {% for notification in unread_notifications|sort(attribute='created_at', reverse=True) %}
+                <li data-type="server"><a class="dropdown-item" href="{{ notification.link or '#' }}"><small><i class="bi bi-share-fill me-2"></i>{{ notification.message }}</small></a></li>
+            {% endfor %}
+            <!-- Placeholder for JS and empty state -->
+            <li class="p-2 text-center text-muted" {% if unread_notifications %}style="display: none;"{% endif %}>No new notifications</li>
+        </ul>
+    </div>
+
+</div>
+
+<!-- Mobile Multi-select Bottom Bar -->
+<div id="mobile-multi-select-nav" class="bottom-nav nav d-none">
+    <div class="container-fluid d-flex justify-content-between align-items-center px-2">
+        <div class="flex-shrink-0">
+            <span id="mobile-selection-count" class="fw-bold text-muted small">0 items selected</span>
+        </div>
+        <div class="d-flex justify-content-end flex-grow-1">
+            <a href="#" id="mobile-deselect-btn" class="nav-item nav-link">
+                <i class="bi bi-x-circle"></i>
+                <span>Deselect</span>
+            </a>
+            <a href="#" id="mobile-select-all-btn" class="nav-item nav-link">
+                <i class="bi bi-check2-square"></i>
+                <span>Select All</span>
+            </a>
+            <div class="nav-item dropup">
+                <a href="#" class="nav-link" id="mobileDownloadDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-download"></i>
+                    <span>Download</span>
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="mobileDownloadDropdown">
+                    <li><a class="dropdown-item" href="#" id="mobile-download-individual-btn">Files</a></li>
+                    <li><a class="dropdown-item" href="#" id="mobile-download-zip-btn">Zip</a></li>
+                </ul>
+            </div>
+            <div class="nav-item dropup">
+                <a href="#" class="nav-link" id="mobileShareDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-share-fill"></i>
+                    <span>Share</span>
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="mobileShareDropdown">
+                    <li><a class="dropdown-item share-trigger" href="#" data-share-mode="multi"><i class="bi bi-send me-2"></i>Share...</a></li>
+                    <li><a class="dropdown-item" href="#" id="mobile-multi-share-user-trigger"><i class="bi bi-person-plus-fill me-2"></i>Share with User...</a></li>
+                    <li><a class="dropdown-item" href="#" id="mobile-multi-share-zip-trigger"><i class="bi bi-file-earmark-zip-fill me-2"></i>Share as Zip</a></li>
+                    <li><a class="dropdown-item" href="#" id="mobile-multi-copy-public-link-trigger"><i class="bi bi-link-45deg me-2"></i>Copy Public Link</a></li>
+                </ul>
+            </div>
+            <a href="#" id="mobile-delete-btn" class="nav-item nav-link text-danger">
+                <i class="bi bi-trash"></i>
+                <span>Delete</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="uploadModalLabel">Upload File</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="upload-form" action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="folder_id" value="{{ current_folder.id if current_folder else 'None' }}">
+          <div class="mb-3">
+            <input class="form-control" type="file" name="file" multiple>
+          </div>
+          <button type="submit" class="btn btn-primary">Upload</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Folder Modal -->
+<div class="modal fade" id="createFolderModal" tabindex="-1" aria-labelledby="createFolderModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="createFolderModalLabel">Create Folder</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="{{ url_for('create_folder') }}" method="post">
+          <input type="hidden" name="parent_id" value="{{ current_folder.id if current_folder else 'None' }}">
+          <div class="mb-3">
+            <label for="folder_name" class="form-label">Folder Name</label>
+            <input type="text" class="form-control" id="folder_name" name="folder_name">
+          </div>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% for folder in folders %}
+<!-- Rename Folder Modal -->
+<div class="modal fade" id="renameFolderModal{{ folder.id }}" tabindex="-1" aria-labelledby="renameFolderModalLabel{{ folder.id }}" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="renameFolderModalLabel{{ folder.id }}">Rename Folder</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="{{ url_for('rename_folder', folder_id=folder.id) }}" method="post">
+          <div class="mb-3">
+            <label for="new_name" class="form-label">New Name</label>
+            <input type="text" class="form-control" id="new_name" name="new_name" value="{{ folder.name }}">
+          </div>
+          <button type="submit" class="btn btn-primary">Rename</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Move Folder Modal -->
+<div class="modal fade" id="moveFolderModal{{ folder.id }}" tabindex="-1" aria-labelledby="moveFolderModalLabel{{ folder.id }}" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="moveFolderModalLabel{{ folder.id }}">Move Folder</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="{{ url_for('move_folder', folder_id=folder.id) }}" method="post">
+          <div class="mb-3">
+            <label for="new_parent_id" class="form-label">Move to</label>
+            <select class="form-select" id="new_parent_id" name="new_parent_id">
+              <option value="None">Home</option>
+              {% for f in all_folders %}
+                {% if f.id != folder.id %}
+                  <option value="{{ f.id }}">{{ f.name }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">Move</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% for file in files %}
+<!-- Rename File Modal -->
+<div class="modal fade" id="renameFileModal{{ file.id }}" tabindex="-1" aria-labelledby="renameFileModalLabel{{ file.id }}" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="renameFileModalLabel{{ file.id }}">Rename File</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="{{ url_for('rename_file', file_id=file.id) }}" method="post">
+          <div class="mb-3">
+            <label for="new_name" class="form-label">New Name</label>
+            <input type="text" class="form-control" id="new_name" name="new_name" value="{{ file.filename }}">
+          </div>
+          <button type="submit" class="btn btn-primary">Rename</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Move File Modal -->
+<div class="modal fade" id="moveFileModal{{ file.id }}" tabindex="-1" aria-labelledby="moveFileModalLabel{{ file.id }}" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="moveFileModalLabel{{ file.id }}">Move File</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="{{ url_for('move_file', file_id=file.id) }}" method="post">
+          <div class="mb-3">
+            <label for="new_folder_id" class="form-label">Move to</label>
+            <select class="form-select" id="new_folder_id" name="new_folder_id">
+              <option value="None">Home</option>
+              {% for folder in all_folders %}
+                <option value="{{ folder.id }}">{{ folder.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">Move</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% for file in files %}
+<!-- File Info Modal -->
+<div class="modal fade" id="infoFileModal{{ file.id }}" tabindex="-1" aria-labelledby="infoFileModalLabel{{ file.id }}" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="infoFileModalLabel{{ file.id }}">File Information</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p><strong>Type:</strong> {{ file.mime_type }}</p>
+        <p><strong>Size:</strong> {{ "%.2f"|format(file.size / 1024 / 1024) }} MB</p>
+        <p><strong>Owner:</strong> {{ file.user.name }}</p>
+        <p><strong>Modified:</strong> {{ file.created_at.strftime('%B %d, %Y %H:%M') }}</p>
+        <p><strong>Created:</strong> {{ file.created_at.strftime('%B %d, %Y %H:%M') }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% include '_share_with_user_modal.html' %}
+{% include '_manage_shares_modal.html' %}
+{% include '_copy_modal.html' %}
+<!-- Hidden form for bulk actions -->
+
+<form id="multi-delete-form" action="{{ url_for('delete_multiple') }}" method="post" class="d-none">
+    <input type="hidden" name="file_ids" id="multi-delete-file-ids">
+    <input type="hidden" name="folder_ids" id="multi-delete-folder-ids">
+</form>
+
+<script>
+    // This function is now in a broader scope to be accessible everywhere.
+    // =================================================================================
+    // DriveMate Application Logic
+    // =================================================================================
+
+    function getSelectedItems() {
+        const itemCheckboxes = document.querySelectorAll('.item-checkbox');
+        const selected = { files: [], folders: [] };
+        itemCheckboxes.forEach(cb => {
+            if (cb.checked) {
+                if (cb.dataset.type === 'file') {
+                    selected.files.push({
+                        id: cb.dataset.id,
+                        filename: JSON.parse(cb.dataset.filename),
+                        mimeType: JSON.parse(cb.dataset.mimeType),
+                        size: parseInt(cb.dataset.size, 10)
+                    });
+                } else if (cb.dataset.type === 'folder') {
+                    selected.folders.push(cb.dataset.id);
+                }
+            }
+        });
+        return selected;
+    }
+
+    function updateSelectionState() {
+        const selected = getSelectedItems();
+        const totalSelected = selected.files.length + selected.folders.length;
+
+        if (totalSelected > 0) {
+            document.getElementById('multi-select-actions').classList.add('active');
+            document.getElementById('selection-count').textContent = `${totalSelected} item(s) selected`;
+            document.getElementById('default-bottom-nav')?.classList.add('d-none');
+            document.getElementById('mobile-multi-select-nav')?.classList.remove('d-none');
+            document.getElementById('mobile-selection-count').textContent = `${totalSelected} selected`;
+        } else {
+            document.getElementById('multi-select-actions').classList.remove('active');
+            document.getElementById('default-bottom-nav')?.classList.remove('d-none');
+            document.getElementById('mobile-multi-select-nav')?.classList.add('d-none');
+        }
+
+        document.getElementById('select-all-checkbox').checked = totalSelected > 0 && totalSelected === document.querySelectorAll('.item-checkbox').length;
+        document.getElementById('select-all-checkbox').indeterminate = totalSelected > 0 && totalSelected < document.querySelectorAll('.item-checkbox').length;
+    }
+
+    function deselectAll() {
+        document.querySelectorAll('.item-checkbox').forEach(cb => {
+            cb.checked = false;
+        });
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        }
+        updateSelectionState();
+    }
+
+    function handleDelete() {
+        const selected = getSelectedItems();
+        const canDelete = selected.files.length > 0 || selected.folders.length > 0;
+        if (!canDelete) return;
+        if (confirm(`Are you sure you want to delete ${selected.files.length + selected.folders.length} item(s)? This action cannot be undone.`)) {
+            const fileIds = selected.files.map(f => f.id);
+            document.getElementById('multi-delete-file-ids').value = fileIds.join(',');
+            document.getElementById('multi-delete-folder-ids').value = selected.folders.join(',');
+            showLoader();
+            document.getElementById('multi-delete-form').submit();
+        }
+    }
+
+    function handleDownload(asZip = true) {
+        const selected = getSelectedItems();
+        const hasSelection = selected.files.length > 0 || selected.folders.length > 0;
+        if (!hasSelection) {
+            alert('Please select items to download.');
+            return;
+        }
+
+        const fileIds = selected.files.map(f => f.id);
+        const folderIds = selected.folders;
+
+        if (asZip) {
+            // If only one file is selected, do a direct download. Otherwise, zip everything.
+            if (fileIds.length === 1 && folderIds.length === 0) {
+                window.location.href = `/download/${fileIds[0]}`;
+            } else if (fileIds.length === 0 && folderIds.length === 1) {
+                window.location.href = `/download-folder/${folderIds[0]}`;
+            } else {
+                // Zip multiple files and/or folders
+                window.location.href = `/download-selection?file_ids=${fileIds.join(',')}&folder_ids=${folderIds.join(',')}`;
+            }
+        } else {
+            // "Files" option only works if no folders are selected.
+            if (folderIds.length > 0) {
+                alert('To download individually, please select only files.');
+                return;
+            }
+            fileIds.forEach((fileId, index) => { setTimeout(() => { const iframe = document.createElement('iframe'); iframe.style.display = 'none'; iframe.src = `/download/${fileId}`; document.body.appendChild(iframe); setTimeout(() => document.body.removeChild(iframe), 60000); }, index * 300); });
+        }
+    }
+
+    function setView(view) {
+        // These elements are re-queried each time to work with refreshed content.
+        const listContainer = document.getElementById('list-view-container');
+        const gridContainer = document.getElementById('grid-view-container');
+        const listViewBtn = document.getElementById('list-view-btn');
+        const gridViewBtn = document.getElementById('grid-view-btn');
+        const mobileViewBtn = document.getElementById('mobile-view-btn');
+        const mobileViewIcon = mobileViewBtn?.querySelector('i');
+
+        if (view === 'grid') {
+            if (listContainer) listContainer.style.display = 'none';
+            if (gridContainer) gridContainer.style.display = 'block';
+            if (listViewBtn) listViewBtn.classList.remove('active');
+            if (gridViewBtn) gridViewBtn.classList.add('active');
+            localStorage.setItem('drivemate_view', 'grid');
+            if (mobileViewIcon) mobileViewIcon.className = 'bi bi-list'; // Show list icon to switch back
+        } else { // 'list'
+            if (gridContainer) gridContainer.style.display = 'none';
+            if (listContainer) listContainer.style.display = 'block';
+            if (gridViewBtn) gridViewBtn.classList.remove('active');
+            if (listViewBtn) listViewBtn.classList.add('active');
+            localStorage.setItem('drivemate_view', 'list');
+            if (mobileViewIcon) mobileViewIcon.className = 'bi bi-grid-fill'; // Show grid icon to switch
+        }
+    }
+
+    function initializeLazyLoading() {
+        const lazyElements = document.querySelectorAll('.lazy-load');
+
+        const loadElement = (el) => {
+            el.classList.remove('lazy-load'); // Prevent re-processing
+            if (el.tagName === 'IMG') {
+                el.src = el.dataset.src;
+            } else if (el.tagName === 'VIDEO') {
+                const source = document.createElement('source');
+                source.src = el.dataset.src;
+                source.type = el.dataset.type;
+                el.appendChild(source);
+                el.load(); // Tell the video element to load the new source
+            }
+        };
+
+        if (!('IntersectionObserver' in window)) {
+            // Fallback for older browsers: load all images immediately
+            lazyElements.forEach(el => loadElement(el));
+            return;
+        }
+
+        const observer = new IntersectionObserver((entries, self) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    loadElement(entry.target);
+                    self.unobserve(entry.target); // Stop observing the element once loaded
+                }
+            });
+        }, { rootMargin: "0px 0px 200px 0px" }); // Start loading when element is 200px from viewport bottom
+
+        lazyElements.forEach(el => observer.observe(el));
+    }
+
+    async function refreshFileBrowser() {
+        try {
+            const response = await fetch(window.location.href, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) throw new Error('Failed to refresh file list.');
+
+            const newContent = await response.text();
+            document.getElementById('file-browser-content').innerHTML = newContent;
+            initializeDriveMate(); // Re-initialize all event listeners on the new content
+        } catch (error) {
+            console.error('Error refreshing file browser:', error);
+            DriveMateApp.addNotification(`error-${Date.now()}`, 'Could not refresh file list. Please reload the page.', false);
+        }
+    }
+
+    const DriveMateApp = {
+        notificationCounter: 0,
+        activeUploads: new Set(),
+
+        // startBackgroundTask: function(taskId) {
+        //     if (this.activeTasks.size === 0) {
+        //         document.querySelectorAll('#notificationDropdown, #mobileNotificationDropdown').forEach(icon => icon?.classList.add('is-active'));
+        //     }
+        //     this.activeTasks.add(taskId);
+        // },
+
+        endBackgroundTask: function(taskId) {
+            this.activeTasks.delete(taskId);
+            if (this.activeTasks.size === 0) {
+                document.querySelectorAll('#notificationDropdown, #mobileNotificationDropdown').forEach(icon => icon?.classList.remove('is-active'));
+            }
+        },
+
+        updateUnreadCount: function() {
+            const wrappers = document.querySelectorAll('[data-upload-indicator] .notification-bell-wrapper');
+            wrappers.forEach(wrapper => {
+                let badge = wrapper.querySelector('.badge');
+                if (!badge) {
+                    // If no badge exists, create one.
+                    badge = document.createElement('span');
+                    badge.className = 'position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger border border-light';
+                    wrapper.appendChild(badge);
+                    badge.textContent = '1';
+                } else {
+                    // Otherwise, increment the existing count.
+                    let currentCount = parseInt(badge.textContent, 10) || 0;
+                    currentCount++;
+                    badge.textContent = currentCount;
+                }
+            });
+        },
+
+        addNotification: function(id, text, isProgress = false) {
+            const lists = [document.getElementById('notification-list'), document.getElementById('mobile-notification-list')];
+
+            lists.forEach(list => {
+                if (!list) return;
+
+                const noNotifMessage = list.querySelector('.text-muted');
+                if (noNotifMessage) {
+                    noNotifMessage.style.display = 'none';
+                }
+
+                let notificationItem = list.querySelector(`[data-id='${id}']`);
+                if (!notificationItem) {
+                    notificationItem = document.createElement('li');
+                    notificationItem.dataset.id = id;
+                    // Find the divider and insert the new item after it
+                    const divider = list.querySelector('.dropdown-divider');
+                    if (divider) {
+                        divider.insertAdjacentElement('afterend', notificationItem);
+                    } else {
+                        list.appendChild(notificationItem); // Fallback
+                    }
+                }
+
+                notificationItem.dataset.isProgress = isProgress;
+
+                let icon;
+                if (isProgress) {
+                    icon = '<div class="spinner-border spinner-border-sm me-2" role="status"></div>';
+                } else if (text.toLowerCase().startsWith('error:')) {
+                    icon = '<i class="bi bi-x-circle-fill text-danger me-2"></i>';
+                } else {
+                    icon = '<i class="bi bi-check-circle-fill text-success me-2"></i>';
+                }
+
+                notificationItem.innerHTML = `<div class="dropdown-item-text p-2 d-flex align-items-center">${icon}<span class="text-truncate">${text}</span></div>`;
+            });
+        },
+
+        removeNotification: function(id) {
+            document.querySelectorAll('#notification-list, #mobile-notification-list').forEach(list => {
+                const item = list.querySelector(`[data-id='${id}']`);
+                if (item) item.remove();
+
+                // Check if any notifications are left
+                const remainingItems = list.querySelectorAll('li[data-id]');
+                if (remainingItems.length === 0) {
+                    const noNotifMessage = list.querySelector('.text-muted');
+                    if (noNotifMessage) noNotifMessage.style.display = 'block';
+                }
+            });
+        },
+
+        clearAllNotifications: function() {
+            fetch('/notifications/mark-as-read', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    // Include CSRF token if your app uses them
+                },
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.querySelectorAll('#notification-list, #mobile-notification-list').forEach(list => {
+                        // Remove server-rendered and client-side completed notifications
+                        const allNotifications = list.querySelectorAll('li[data-id]:not([data-is-progress="true"]), li[data-type="server"]');
+                        allNotifications.forEach(item => item.remove());
+
+                        // Show the 'No new notifications' message
+                        const noNotifMessage = list.querySelector('.text-muted');
+                        if (noNotifMessage) noNotifMessage.style.display = 'block';
+                    });
+
+                    // Remove the notification badge
+                    document.querySelectorAll('[data-upload-indicator] .notification-bell-wrapper .badge').forEach(badge => {
+                        badge.remove();
+                    });
+                } else {
+                    showToast('Could not clear notifications. Please try again.', true);
+                }
+            })
+            .catch(error => {
+                console.error('Error clearing notifications:', error);
+                showToast('An error occurred while clearing notifications.', true);
+            });
+        }
+    };
+
+    function createFileRow(file) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td class="align-middle">
+                <input class="form-check-input item-checkbox" type="checkbox" data-id="${file.id}" data-type="file" data-mime-type='${JSON.stringify(file.mime_type)}' data-filename='${JSON.stringify(file.filename)}' data-size="${file.size}">
+            </td>
+            <td>
+                <i class="bi bi-file-earmark me-2"></i>
+                <a href="/preview/${file.id}" class="discreet-link">${file.filename}</a>
+            </td>
+            <td><span class="text-muted">Me</span></td>
+            <td>${(file.size / 1024 / 1024).toFixed(2)} MB</td>
+            <td>${file.created_at}</td>
+            <td class="text-end">
+                <!-- Actions dropdown would go here, but is complex to generate client-side. A refresh is better for full functionality. -->
+            </td>
+        `;
+        return tr;
+    }
+
+    function createFileCard(file) {
+        const col = document.createElement('div');
+        col.className = 'col';
+        // A simplified card. Full functionality requires a page refresh for modals.
+        col.innerHTML = `
+            <div class="card h-100 shadow-sm">
+                 <a href="/preview/${file.id}" class="text-decoration-none text-dark">
+                    <div class="text-center d-flex align-items-center justify-content-center" style="height: 120px; background-color: #f8f9fa;">
+                        <i class="bi bi-file-earmark" style="font-size: 3rem;"></i>
+                    </div>
+                    <div class="card-body p-2">
+                        <p class="card-text text-truncate small" title="${file.filename}">${file.filename}</p>
+                    </div>
+                </a>
+            </div>
+        `;
+        return col;
+    }
+
+    function createMobileCard(file) {
+        const card = document.createElement('div');
+        card.className = 'card mb-2';
+        card.innerHTML = `
+            <div class="card-body p-2">
+                <div class="d-flex align-items-center">
+                    <div class="p-1"><input class="form-check-input item-checkbox" type="checkbox" data-id="${file.id}" data-type="file" data-mime-type='${JSON.stringify(file.mime_type)}' data-filename='${JSON.stringify(file.filename)}' data-size="${file.size}"></div>
+                    <div class="p-2">
+                        <a href="/preview/${file.id}" class="text-decoration-none">
+                            <i class="bi bi-file-earmark fs-2"></i>
+                        </a>
+                    </div>
+                    <div class="flex-grow-1 ps-2" style="min-width: 0;">
+                        <a href="/preview/${file.id}" class="text-decoration-none text-dark">
+                            <h6 class="mb-0 text-truncate">${file.filename}</h6>
+                        </a>
+                        <div class="small text-muted mt-1 text-nowrap overflow-hidden">
+                            <span>Me</span>
+                            <span class="mx-1">&middot;</span>
+                            <span>${(file.size / 1024 / 1024).toFixed(2)} MB</span>
+                            <span class="mx-1">&middot;</span>
+                            <span>${new Date().toLocaleString('default', { month: 'short', day: 'numeric' })}</span>
+                        </div>
+                    </div>
+                    <div class="p-1" style="z-index: 2;">
+                        <!-- Dropdown is omitted for simplicity on dynamic append -->
+                    </div>
+                </div>
+            </div>
+        `;
+        return card;
+    }
+
+
+    function appendNewFileToView(file) {
+        // For List View
+        const tableBody = document.querySelector('#list-view-container tbody');
+        if (tableBody) {
+            tableBody.appendChild(createFileRow(file));
+        }
+
+        // For Grid View
+        const gridContainer = document.querySelector('#grid-view-container .row');
+        if (gridContainer) {
+            gridContainer.appendChild(createFileCard(file));
+        }
+
+        // For Mobile View
+        const mobileContainer = document.querySelector('.d-md-none');
+        if (mobileContainer) {
+            // Insert before the grid view container
+            const gridViewInMobile = mobileContainer.querySelector('#grid-view-container');
+            if (gridViewInMobile) {
+                mobileContainer.insertBefore(createMobileCard(file), gridViewInMobile);
+            } else {
+                 mobileContainer.appendChild(createMobileCard(file));
+            }
+        }
+    }
+
+    async function uploadFileInChunks(file, form, fileUploadId) {
+        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const uploadId = `${file.name}-${file.size}-${file.lastModified}`;
+
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+            const start = chunkIndex * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const chunk = file.slice(start, end);
+
+            const formData = new FormData();
+            formData.append('file', chunk, file.name);
+            formData.append('dzuuid', uploadId);
+            formData.append('dzchunkindex', chunkIndex);
+            formData.append('dztotalchunkcount', totalChunks);
+            formData.append('folder_id', form.querySelector('input[name="folder_id"]').value);
+            formData.append('mime_type', file.type || 'application/octet-stream');
+
+            // Update the notification text for the current file's chunk progress
+            const finalProgress = Math.round(((chunkIndex + 1) / totalChunks) * 100);
+            DriveMateApp.addNotification(fileUploadId, `Uploading: ${file.name} (${finalProgress}%)`, true);
+
+            try {
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `Upload failed for ${file.name}`);
+                }
+                if (chunkIndex === totalChunks - 1) {
+                    return await response.json(); // Return the final file data
+                }
+            } catch (error) {
+                throw error;
+            }
+        }
+    }
+
+    async function handleUpload(event) {
+        event.preventDefault();
+        const form = event.target;
+        const uploadIndicators = document.querySelectorAll('[data-upload-indicator]');
+        const fileInput = form.querySelector('input[type="file"]');
+        const files = Array.from(fileInput.files);
+        if (files.length === 0) return;
+
+        const uploadModal = bootstrap.Modal.getInstance(document.getElementById('uploadModal'));
+        if (uploadModal) uploadModal.hide();
+
+        uploadIndicators.forEach(el => el.classList.add('is-uploading'));
+
+        const totalFiles = files.length;
+        let filesUploaded = 0;
+
+        for (const file of files) {
+            const fileUploadId = `upload-${file.name}-${file.lastModified}`;
+            DriveMateApp.addNotification(fileUploadId, `Starting: ${file.name}`, true);
+            try {
+                const result = await uploadFileInChunks(file, form, fileUploadId);
+                DriveMateApp.addNotification(fileUploadId, `${file.name} uploaded successfully.`, false);
+                DriveMateApp.updateUnreadCount(); // Increment the badge count
+                // Dynamically add the new file to the list
+                appendNewFileToView(result.file);
+            } catch (error) {
+                DriveMateApp.addNotification(fileUploadId, `Error: ${file.name} - ${error.message}`, false);
+                showToast(`Failed to upload ${file.name}.`, true);
+            } finally {
+                filesUploaded++;
+                const overallProgress = Math.round((filesUploaded / totalFiles) * 100);
+
+                // Update the main progress indicator (the bell icon)
+                uploadIndicators.forEach(el => {
+                    el.style.setProperty('--upload-progress', `${overallProgress}%`);
+                });
+            }
+        }
+
+        // Add a short delay before resetting the progress bar so the user can see it reach 100%
+        setTimeout(() => {
+            uploadIndicators.forEach(el => {
+                el.classList.remove('is-uploading');
+                el.style.removeProperty('--upload-progress');
+
+                // Add a class to trigger a "shake" animation, indicating completion
+                el.classList.add('upload-complete');
+                // Remove the class after the animation finishes so it can be re-triggered later
+                setTimeout(() => {
+                    el.classList.remove('upload-complete');
+                }, 1000); // Animation is 0.82s, 1s is a safe buffer.
+            });
+        }, 1500); // 1.5-second delay
+
+        fileInput.value = '';
+    }
+
+    function initializeDriveMate() {
+        // --- Element Selectors ---
+        const elements = {
+            listViewBtn: document.getElementById('list-view-btn'),
+            gridViewBtn: document.getElementById('grid-view-btn'),
+            mobileViewBtn: document.getElementById('mobile-view-btn'),
+            defaultBottomNav: document.getElementById('default-bottom-nav'),
+            mobileMultiSelectNav: document.getElementById('mobile-multi-select-nav'),
+            mobileSelectionCount: document.getElementById('mobile-selection-count'),
+            mobileShareBtn: document.getElementById('mobile-share-btn'),
+            mobileDownloadBtn: document.getElementById('mobile-download-btn'),
+            mobileDeleteBtn: document.getElementById('mobile-delete-btn'),
+            multiSelectActions: document.getElementById('multi-select-actions'),
+            selectionCount: document.getElementById('selection-count'),
+            selectAllCheckbox: document.getElementById('select-all-checkbox'),
+            itemCheckboxes: document.querySelectorAll('.item-checkbox'),
+            deleteSelectedBtn: document.getElementById('delete-selected-btn'),
+            downloadSelectedBtn: document.getElementById('download-selected-btn'),
+            shareSelectedBtn: document.getElementById('share-selected-btn'),
+            multiDeleteForm: document.getElementById('multi-delete-form'),
+            multiDeleteFileIds: document.getElementById('multi-delete-file-ids'),
+            multiDeleteFolderIds: document.getElementById('multi-delete-folder-ids'),
+            singleShareBtns: document.querySelectorAll('.share-btn')
+        };
+
+        // These elements are inside the dynamic content area
+        elements.listContainer = document.getElementById('list-view-container');
+        elements.gridContainer = document.getElementById('grid-view-container');
+        const uploadForm = document.getElementById('upload-form');
+        const allForms = document.querySelectorAll('form');
+        elements.itemCheckboxes?.forEach(cb => cb.addEventListener('change', updateSelectionState));
+        if (elements.selectAllCheckbox) {
+            elements.selectAllCheckbox.addEventListener('change', function() {
+                elements.itemCheckboxes.forEach(cb => { cb.checked = this.checked; });
+                updateSelectionState();
+            });
+        }
+
+        setView(localStorage.getItem('drivemate_view') || 'list');
+        updateSelectionState();
+        initializeLazyLoading();
+
+        // --- Loading indicator for other form submissions ---
+        if (allForms) {
+            allForms.forEach(form => {
+                // Exclude the upload form (handled above) and search forms
+                if (form.id !== 'upload-form' && !form.querySelector('input[name="search"]')) {
+                    form.addEventListener('submit', showLoader);
+                }
+            });
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const mobileViewBtn = document.getElementById('mobile-view-btn');
+        const uploadForm = document.getElementById('upload-form');
+
+        // Clear file input when upload modal is closed without uploading
+        const uploadModalEl = document.getElementById('uploadModal');
+        if (uploadModalEl) {
+            uploadModalEl.addEventListener('hidden.bs.modal', function () {
+                const fileInput = uploadForm.querySelector('input[type="file"]');
+                if (fileInput) {
+                    fileInput.value = '';
+                }
+            });
+        }
+
+        // --- Delegated Event Listeners (attached only once) ---
+        document.body.addEventListener('click', function(e) {
+            // Deselect All
+            if (e.target.closest('#deselect-all-btn, #mobile-deselect-btn')) {
+                e.preventDefault();
+                deselectAll();
+                return; // Action handled
+            }
+
+            // Select All (Mobile)
+            if (e.target.closest('#mobile-select-all-btn')) {
+                e.preventDefault();
+                document.querySelectorAll('.item-checkbox').forEach(cb => { cb.checked = true; });
+                updateSelectionState();
+            }
+
+            // Multi-select actions
+            if (e.target.closest('#delete-selected-btn, #mobile-delete-btn')) { e.preventDefault(); handleDelete(); }
+            if (e.target.closest('#download-zip-btn, #mobile-download-zip-btn')) { e.preventDefault(); handleDownload(true); } // Zip
+            if (e.target.closest('#download-individual-btn, #mobile-download-individual-btn')) { e.preventDefault(); handleDownload(false); } // Files
+
+            // Multi-select share actions
+            if (e.target.closest('#multi-share-user-trigger, #mobile-multi-share-user-trigger')) {
+                e.preventDefault();
+                const selected = getSelectedItems();
+                const totalSelected = selected.files.length + selected.folders.length;
+                if (totalSelected === 0) {
+                    showToast('Please select items to share.', true);
+                    return;
+                }
+                document.getElementById('share-file-ids').value = selected.files.map(f => f.id).join(',');
+                document.getElementById('share-folder-ids').value = selected.folders.join(',');
+                document.getElementById('share-filename-display').textContent = `${totalSelected} item(s)`;
+                const shareModal = new bootstrap.Modal(document.getElementById('shareWithUserModal'));
+                shareModal.show();
+            }
+
+            if (e.target.closest('#multi-copy-public-link-trigger, #mobile-multi-copy-public-link-trigger')) {
+                e.preventDefault();
+                const selected = getSelectedItems();
+                if (selected.files.length === 0 && selected.folders.length === 0) {
+                    showToast('Please select items to create a link.', true);
+                    return;
+                }
+                showLoader('Generating link...');
+                const fileIds = selected.files.map(f => f.id).join(',');
+                const folderIds = selected.folders.join(',');
+                fetch(`/generate-public-selection-link?file_ids=${fileIds}&folder_ids=${folderIds}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        navigator.clipboard.writeText(data.link);
+                        showToast('Public link for selection copied to clipboard!');
+                    })
+                    .catch(err => showToast('Could not generate link.', true))
+                    .finally(hideLoader);
+            }
+
+            // View toggle actions
+            if (e.target.closest('#list-view-btn')) { setView('list'); }
+            if (e.target.closest('#grid-view-btn')) { setView('grid'); }
+            if (e.target.closest('#mobile-view-btn')) {
+                e.preventDefault();
+                const currentView = localStorage.getItem('drivemate_view') || 'list';
+                setView(currentView === 'list' ? 'grid' : 'list');
+            }
+
+            // Share with user modal trigger
+            const shareUserTrigger = e.target.closest('.share-user-trigger');
+            if (shareUserTrigger) {
+                e.preventDefault();
+                const fileId = shareUserTrigger.dataset.fileId;
+                const filename = JSON.parse(shareUserTrigger.dataset.filename);
+                document.getElementById('share-file-ids').value = fileId;
+                document.getElementById('share-folder-ids').value = '';
+                document.getElementById('share-filename-display').textContent = filename;
+            }
+
+            const shareFolderUserTrigger = e.target.closest('.share-folder-user-trigger');
+            if (shareFolderUserTrigger) {
+                e.preventDefault();
+                const folderId = shareFolderUserTrigger.dataset.folderId;
+                const folderName = JSON.parse(shareFolderUserTrigger.dataset.folderName);
+                document.getElementById('share-file-ids').value = '';
+                document.getElementById('share-folder-ids').value = folderId;
+                document.getElementById('share-filename-display').textContent = folderName;
+            }
+
+            // Manage shares modal trigger
+            const manageSharesTrigger = e.target.closest('.manage-shares-trigger');
+            if (manageSharesTrigger) {
+                e.preventDefault();
+                const itemId = manageSharesTrigger.dataset.itemId;
+                const itemType = manageSharesTrigger.dataset.itemType;
+                const filename = JSON.parse(manageSharesTrigger.dataset.filename);
+                
+                const modalTitle = document.getElementById('manage-shares-filename');
+                const modalListContainer = document.getElementById('manage-shares-list-container');
+
+                modalTitle.textContent = filename;
+                modalTitle.dataset.itemId = itemId; // Store for later use
+                modalTitle.dataset.itemType = itemType;
+                // Clear previous content and show loader
+                modalListContainer.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div></div>'; // Show loader
+                fetchAndDisplayShares(itemId, itemType, modalListContainer);
+            }
+
+            // Copy modal trigger
+            const copyTrigger = e.target.closest('.copy-trigger');
+            if (copyTrigger) {
+                e.preventDefault();
+                const itemId = copyTrigger.dataset.itemId;
+                const itemName = JSON.parse(copyTrigger.dataset.itemName);
+                const itemType = copyTrigger.dataset.itemType;
+
+                document.getElementById('copy-item-name').textContent = itemName;
+                document.getElementById('copy-file-id').value = (itemType === 'file') ? itemId : '';
+                document.getElementById('copy-folder-id').value = (itemType === 'folder') ? itemId : '';
+                
+                const copyModalEl = document.getElementById('copyModal');
+                const copyModal = new bootstrap.Modal(copyModalEl);
+                copyModal.show();
+            }
+            // Clear all notifications
+            if (e.target.closest('#clear-notifications-btn, #mobile-clear-notifications-btn')) { e.preventDefault(); DriveMateApp.clearAllNotifications(); }
+        });
+
+        if (uploadForm) {
+            uploadForm.addEventListener('submit', handleUpload);
+        }
+
+        document.body.addEventListener('click', async function handleShareTrigger(e) {
+            const shareTrigger = e.target.closest('.share-trigger');
+            if (!shareTrigger) return;
+
+            e.preventDefault(); // We will handle the share action.
+
+            // If Web Share API is not supported, inform the user and stop.
+            if (!navigator.share) {
+                showToast('Sharing is not supported on this browser.', true);
+                return;
+            }
+
+            showLoader('Preparing to share...');
+
+            let filesToShare = [];
+            let foldersToShare = [];
+            if (shareTrigger.dataset.shareMode === 'multi') {
+                const selected = getSelectedItems();
+                filesToShare = selected.files;
+                foldersToShare = selected.folders;
+                if (filesToShare.length === 0 && foldersToShare.length === 0) {
+                    hideLoader();
+                    showToast('Please select at least one item to share.', true);
+                    return;
+                }
+            } else {
+                // This is for single file sharing from dropdowns
+                filesToShare.push({
+                    id: shareTrigger.dataset.fileId,
+                    filename: JSON.parse(shareTrigger.dataset.filename),
+                    mimeType: JSON.parse(shareTrigger.dataset.mimeType),
+                    size: parseInt(shareTrigger.dataset.size, 10)
+                });
+            }
+
+            let directShareSuccessful = false;
+
+            // --- File Size Check ---
+            const DIRECT_SHARE_LIMIT_MB = 50; // Only check for files, not folders
+            const totalSize = filesToShare.reduce((acc, file) => acc + file.size, 0);
+            const totalSizeMB = totalSize / 1024 / 1024;
+
+            // Only attempt direct file share if NO folders are selected.
+            let attemptDirectShare = foldersToShare.length === 0;
+            if (attemptDirectShare && totalSizeMB > DIRECT_SHARE_LIMIT_MB) {
+                attemptDirectShare = confirm(`The selected file(s) are large (${totalSizeMB.toFixed(1)} MB). Direct sharing may be unstable or fail.\n\nClick OK to attempt sharing the file(s) directly.\nClick Cancel to share a web link instead.`);
+            }
+
+            // --- Attempt 1: Share actual files (only works for files, not folders) ---
+            if (attemptDirectShare && filesToShare.length > 0) {
+                try {
+                    const fileObjects = [];
+                    for (const fileData of filesToShare) {
+                        const response = await fetch(`/download/${fileData.id}?inline=true`);
+                        if (!response.ok) throw new Error(`Could not fetch ${fileData.filename}`);
+                        const blob = await response.blob();
+                        fileObjects.push(new File([blob], fileData.filename, {
+                            type: fileData.mimeType
+                        }));
+                    }
+
+                    const shareData = { files: fileObjects };
+                    if (navigator.canShare && navigator.canShare(shareData)) {
+                        await navigator.share(shareData);
+                        directShareSuccessful = true; // SUCCESS
+                    }
+                } catch (err) {
+                    if (err.name === 'AbortError') {
+                        console.log("User cancelled direct file share.");
+                        directShareSuccessful = true; // Prevent fallback to link sharing
+                    } else {
+                        console.warn("Direct file share failed, falling back to link sharing. Error:", err);
+                    }
+                }
+            }
+
+            // --- Attempt 2 (Fallback): Share a link ---
+            if (!directShareSuccessful) {
+                try {
+                    const fileIds = filesToShare.map(f => f.id).join(',');
+                    const folderIds = foldersToShare.join(',');
+                    const response = await fetch(`/generate-public-selection-link?file_ids=${fileIds}&folder_ids=${folderIds}`);
+                    if (!response.ok) throw new Error('Could not generate link.');
+                    const data = await response.json();
+                    const itemCount = filesToShare.length + foldersToShare.length;
+                    const shareData = { title: 'Shared Files from DriveMate', text: `Here are ${itemCount} item(s) I've shared with you.`, url: data.link };
+
+                    await navigator.share(shareData);
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.error("Link sharing also failed:", err);
+                        showToast('Could not initiate sharing. Please try again.', true);
+                    } else {
+                        console.log("User cancelled link share.");
+                    }
+                }
+            }
+
+            hideLoader();
+        });
+    
+        document.body.addEventListener('click', async function handleShareAsZip(e) { // Renamed from handleShareTrigger
+            const zipTrigger = e.target.closest('.share-zip-trigger, #multi-share-zip-trigger, #mobile-multi-share-zip-trigger');
+            if (!zipTrigger) return;
+            e.preventDefault();
+
+            if (!navigator.share) {
+                showToast('Sharing is not supported on this browser.', true);
+                return;
+            }
+
+            let fileIdsStr = '';
+            let folderIdsStr = '';
+            let selectionName = 'archive';
+
+            if (zipTrigger.matches('#multi-share-zip-trigger, #mobile-multi-share-zip-trigger')) {
+                const selected = getSelectedItems();
+                fileIdsStr = selected.files.map(f => f.id).join(',');
+                folderIdsStr = selected.folders.join(',');
+                selectionName = `${selected.files.length + selected.folders.length}_items`;
+            } else { // Single folder trigger
+                folderIdsStr = zipTrigger.dataset.folderId;
+                selectionName = JSON.parse(zipTrigger.dataset.folderName);
+            }
+
+            if (!fileIdsStr && !folderIdsStr) {
+                showToast('Please select items to share.', true);
+                return;
+            }
+
+            showLoader('Preparing Zip...');
+            try {
+                const zipResponse = await fetch(`/api/create-zip?file_ids=${fileIdsStr}&folder_ids=${folderIdsStr}`);
+                if (!zipResponse.ok) throw new Error('Could not create zip file on server.');
+
+                const zipBlob = await zipResponse.blob();
+                const zipFile = new File([zipBlob], `${selectionName}.zip`, { type: 'application/zip' });
+
+                const overlay = document.getElementById('shareZipOverlay');
+                const confirmBtn = document.getElementById('share-zip-confirm-btn');
+                confirmBtn.zipFile = zipFile; // Attach the generated file to the button
+                confirmBtn.dataset.fallbackFileIds = fileIdsStr;
+                confirmBtn.dataset.fallbackFolderIds = folderIdsStr;
+                confirmBtn.dataset.fallbackSelectionName = selectionName;
+                document.getElementById('share-zip-filename').textContent = zipFile.name;
+                overlay.style.display = 'flex';
+            } catch (err) {
+                showToast('Could not prepare the zip file for sharing.', true);
+                console.error("Zip creation failed:", err);
+            } finally {
+                hideLoader();
+            }
+        });
+
+        document.body.addEventListener('click', async function handleLinkCopy(e) {
+            const linkShareTrigger = e.target.closest('.share-link-trigger');
+            if (!linkShareTrigger) return;
+            e.preventDefault();
+
+            if (!navigator.clipboard) {
+                showToast('Clipboard access is not supported on this browser.', true);
+                return;
+            }
+
+            showLoader('Generating link...');
+            const fileId = linkShareTrigger.dataset.fileId;
+
+            try {
+                const response = await fetch(`/generate-share-link/${fileId}`);
+                if (!response.ok) throw new Error('Could not generate link.');
+                const data = await response.json();
+                await navigator.clipboard.writeText(data.link);
+                showToast('Public link copied to clipboard!');
+            } catch (err) {
+                console.error("Link copy failed:", err);
+                showToast('Could not copy the link.', true);
+            } finally {
+                hideLoader();
+            }
+        });
+
+        // Handle "Share with User" form submission
+        const shareWithUserForm = document.getElementById('share-with-user-form');
+        if (shareWithUserForm) {
+            shareWithUserForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                showLoader('Sharing items...');
+                const formData = new FormData(this);
+                try {
+                    const response = await fetch("{{ url_for('share_with_user') }}", {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        // The notification is now handled by the real-time polling system,
+                        // which will show a toast and add it to the activity list.
+                        const modal = bootstrap.Modal.getInstance(document.getElementById('shareWithUserModal'));
+                        modal.hide();
+                    } else {
+                        showToast(data.error, true);
+                    }
+                } catch (err) {
+                    showToast('An unexpected error occurred. Please try again.', true);
+                } finally {
+                    hideLoader();
+                }
+            });
+        }
+
+        async function fetchAndDisplayShares(itemId, itemType, container) {
+            try {
+                const response = await fetch(`/item/${itemType}/${itemId}/shares`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    container.innerHTML = `<p class="text-danger">${data.error}</p>`;
+                    return;
+                }
+
+                if (data.shares.length === 0) {
+                    container.innerHTML = '<p class="text-muted">Not shared with anyone.</p>';
+                    return;
+                }
+
+                const list = document.createElement('ul');
+                list.className = 'list-group';
+                data.shares.forEach(share => {
+                    const item = document.createElement('li');
+                    item.className = 'list-group-item';
+                    item.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>
+                                <i class="bi bi-person-circle me-2"></i>
+                                ${share.name} <small class="text-muted">(${share.email})</small>
+                            </span>
+                            <button class="btn btn-sm btn-outline-danger unshare-btn" data-user-id="${share.id}">Remove</button>
+                        </div>
+                        <div class="mt-2">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input permission-check" type="checkbox" id="can_download_${share.id}" data-permission="can_download" data-user-id="${share.id}" ${share.can_download ? 'checked' : ''}>
+                                <label class="form-check-label" for="can_download_${share.id}">Download</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input permission-check" type="checkbox" id="can_copy_${share.id}" data-permission="can_copy" data-user-id="${share.id}" ${share.can_copy ? 'checked' : ''}>
+                                <label class="form-check-label" for="can_copy_${share.id}">Copy</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input permission-check" type="checkbox" id="can_reshare_${share.id}" data-permission="can_reshare" data-user-id="${share.id}" ${share.can_reshare ? 'checked' : ''}>
+                                <label class="form-check-label" for="can_reshare_${share.id}">Reshare</label>
+                            </div>
+                        </div>
+                    `;
+                    list.appendChild(item);
+                });
+                container.innerHTML = '';
+                container.appendChild(list);
+
+            } catch (error) {
+                container.innerHTML = '<p class="text-danger">Could not load sharing information.</p>';
+            }
+        }
+
+        document.getElementById('manageSharesModal')?.addEventListener('click', async function(e) {
+            if (e.target.classList.contains('unshare-btn')) {
+                const button = e.target;
+                const modalTitle = document.getElementById('manage-shares-filename');
+                const itemId = modalTitle.dataset.itemId;
+                const itemType = modalTitle.dataset.itemType;
+                const userId = button.dataset.userId;
+
+                if (confirm('Are you sure you want to un-share this item from this user?')) {
+                    const formData = new FormData();
+                    formData.append('item_id', itemId);
+                    formData.append('item_type', itemType);
+                    formData.append('user_id', userId);
+
+                    const response = await fetch('/unshare-item', { method: 'POST', body: formData });
+                    const data = await response.json();
+
+                    showToast(data.message || data.error, !data.success);
+                    if (data.success) {
+                        button.closest('li.list-group-item').remove(); // Remove the user from the list
+                    }
+                }
+            }
+        });
+
+        document.getElementById('manageSharesModal')?.addEventListener('change', async function(e) {
+            if (e.target.classList.contains('permission-check')) {
+                const checkbox = e.target;
+                const permission = checkbox.dataset.permission;
+                const userId = checkbox.dataset.userId;
+                const modalTitle = document.getElementById('manage-shares-filename');
+                const itemId = modalTitle.dataset.itemId;
+                const itemType = modalTitle.dataset.itemType;
+                const isChecked = checkbox.checked;
+
+                const formData = new FormData();
+                formData.append('item_id', itemId);
+                formData.append('item_type', itemType);
+                formData.append('user_id', userId);
+                formData.append(permission, isChecked);
+
+                const response = await fetch('/update-share-permissions', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                showToast(data.message || data.error, !data.success);
+                if (!data.success) {
+                    // Revert the checkbox on failure
+                    checkbox.checked = !isChecked;
+                }
+            }
+        });
+
+        // Initial setup
+        initializeDriveMate();
+        initializeLazyLoading(); // Also call it on initial load
+    });
+</script>
+{% endblock %}

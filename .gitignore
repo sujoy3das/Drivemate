@@ -1,0 +1,7 @@
+.env
+cert.pem
+key.pem
+localhost+1-key.pem
+localhost+1.pem
+__pycache__/
+uploads/
