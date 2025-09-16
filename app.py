@@ -72,8 +72,6 @@ VIDEO_CACHE_FOLDER = os.path.join(UPLOAD_FOLDER, 'video_cache')
 if not os.path.exists(VIDEO_CACHE_FOLDER):
     os.makedirs(VIDEO_CACHE_FOLDER)
 
-# Initialize a thread pool for background tasks like video conversion.
-executor = ThreadPoolExecutor(max_workers=2)
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
@@ -1348,23 +1346,45 @@ def stream_converted_video(file_id):
 @app.route('/download_converted_video/<int:file_id>')
 @login_required
 def download_converted_video(file_id):
+    """
+    Serves a converted MP4 video for download.
+    If the cached version doesn't exist, it will be created first.
+    """
     file = db.get_or_404(File, file_id)
     if not can_download_item(file, current_user):
         flash('You do not have permission to download this file.', 'danger')
         return redirect(request.referrer or url_for('index'))
 
-    # This reuses the same logic as the streaming endpoint.
-    # It will either serve the cached file or create it.
-    response = stream_converted_video(file_id)
+    cached_filename = f"cache_{file.id}_{int(file.created_at.timestamp())}.mp4"
+    cached_filepath = os.path.join(VIDEO_CACHE_FOLDER, cached_filename)
 
-    # If the response is a file, modify headers for download.
-    if hasattr(response, 'headers'):
-        # Create a new filename for the download
-        original_name, _ = os.path.splitext(file.filename)
-        download_name = f"{original_name}.mp4"
-        response.headers['Content-Disposition'] = f'attachment; filename="{download_name}"'
-    
-    return response
+    # If the cached file doesn't exist, create it now.
+    if not os.path.exists(cached_filepath):
+        app.logger.info(f"Cache miss for converted video {file_id}. Starting conversion for download.")
+        temp_input_path = None
+        try:
+            master_fernet = Fernet(current_app.config['MASTER_ENCRYPTION_KEY'])
+            file_key = master_fernet.decrypt(file.encrypted_key.encode('utf-8'))
+            fernet = Fernet(file_key)
+            
+            with open(file.path, 'rb') as f_enc:
+                decrypted_content = fernet.decrypt(f_enc.read())
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_in:
+                temp_in.write(decrypted_content)
+                temp_input_path = temp_in.name
+
+            if not convert_video_to_mp4(temp_input_path, cached_filepath):
+                flash('Video conversion failed. Could not download the file.', 'danger')
+                return redirect(request.referrer or url_for('index'))
+        finally:
+            if temp_input_path and os.path.exists(temp_input_path):
+                os.remove(temp_input_path)
+
+    # Create a new filename for the download
+    original_name, _ = os.path.splitext(file.filename)
+    download_name = f"{original_name}.mp4"
+    return send_file(cached_filepath, mimetype='video/mp4', as_attachment=True, download_name=download_name)
 
 @app.route('/convert_video_to_mp4/<int:file_id>', methods=['POST'])
 @login_required
